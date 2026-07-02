@@ -1,0 +1,120 @@
+import discord
+from discord.ext import commands
+import aiohttp
+import os
+import asyncio
+
+# === CONFIGURAÇÕES (O bot lê isso da Nuvem) ===
+TOKEN = os.environ.get('DISCORD_TOKEN')
+STEAM_API_KEY = os.environ.get('STEAM_API_KEY')
+ROLE_R2_ID = int(os.environ.get('ROLE_R2_ID', 0))
+ROLE_UNVERIFIED_ID = int(os.environ.get('ROLE_UNVERIFIED_ID', 0))
+
+# Permissões do bot (Intents)
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# === VALIDAÇÃO DA STEAM API ===
+async def validate_steam(steam_id):
+    if not steam_id.isdigit() or len(steam_id) != 17:
+        return False, "O SteamID64 é inválido. Ele deve conter exatamente 17 números."
+
+    if not STEAM_API_KEY:
+        return False, "Erro: Chave da API não configurada."
+
+    async with aiohttp.ClientSession() as session:
+        # 1. Checa se o usuário existe
+        summary_url = f"http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_id}"
+        async with session.get(summary_url) as resp:
+            if resp.status != 200: return False, "Erro na API da Steam."
+            data = await resp.json()
+            if not data.get('response', {}).get('players'):
+                return False, "SteamID não encontrado."
+
+        # 2. Checa Bans
+        ban_url = f"http://api.steampowered.com/ISteamUser/GetPlayerBans/v1/?key={STEAM_API_KEY}&steamids={steam_id}"
+        async with session.get(ban_url) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                players = data.get('players', [])
+                if players and (players[0].get('VACBanned') or players[0].get('NumberOfGameBans') > 0):
+                    return False, "Banimento detectado (VAC/Game Ban). Acesso negado."
+
+    return True, "Validado com sucesso."
+
+# === INTERFACE ===
+class RulesView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="2. Li e Aceito as Regras", style=discord.ButtonStyle.green, custom_id="btn_accept_rules")
+    async def accept_rules(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        member = interaction.user
+        role_r2 = guild.get_role(ROLE_R2_ID)
+        role_unverified = guild.get_role(ROLE_UNVERIFIED_ID)
+
+        try:
+            if role_r2: await member.add_roles(role_r2)
+            if role_unverified: await member.remove_roles(role_unverified)
+        except discord.errors.Forbidden:
+            await interaction.response.send_message("❌ Erro: O cargo do bot deve estar ACIMA dos cargos de usuário.", ephemeral=True)
+            return
+
+        welcome_embed = discord.Embed(
+            title="☣️ BEM-VINDO AO UMBRELLAZ SERVER ☣️",
+            description=f"Sobrevivente {member.mention}, você foi autorizado e promovido a **🪓R2**.\n\nTrust no one. Survive everything.",
+            color=0x8B0000
+        )
+        await interaction.response.edit_message(content=None, embed=welcome_embed, view=None)
+
+
+class SteamModal(discord.ui.Modal, title='Verificação UmbrellaZ'):
+    steam_id = discord.ui.TextInput(label='Informe seu SteamID64', placeholder='Ex: 76561198000000000', required=True, min_length=17, max_length=17)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        is_valid, message = await validate_steam(self.steam_id.value)
+        if not is_valid:
+            await interaction.followup.send(f"❌ **Acesso Negado:** {message}", ephemeral=True)
+            return
+
+        rules_embed = discord.Embed(
+            title="📜 Regras do Servidor UmbrellaZ",
+            description="**Passo 2:** Leia e aceite as regras:\n\n1. Não use cheats.\n2. Respeite os outros.\n3. Proibido metagaming.\n4. Siga diretrizes de raide.\n\n*O não cumprimento resultará em banimento.*",
+            color=0x1A1A1A
+        )
+        await interaction.followup.send(embed=rules_embed, view=RulesView(), ephemeral=True)
+
+
+class VerificationView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="1. Verificar Steam", style=discord.ButtonStyle.blurple, custom_id="btn_verify_steam")
+    async def verify_steam(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(SteamModal())
+
+
+@bot.event
+async def on_ready():
+    bot.add_view(VerificationView())
+    bot.add_view(RulesView())
+    print(f'✅ Bot online!')
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setup(ctx):
+    embed = discord.Embed(
+        title="☣️ Controle de Acesso UmbrellaZ ☣️",
+        description="Clique no botão abaixo para verificar seu histórico na Steam.",
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed, view=VerificationView())
+    await ctx.message.delete()
+
+if __name__ == '__main__':
+    bot.run(TOKEN)
