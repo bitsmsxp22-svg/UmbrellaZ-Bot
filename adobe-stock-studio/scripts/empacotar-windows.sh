@@ -20,6 +20,13 @@ npm run build >/dev/null
 echo "==> Copiando arquivos do projeto"
 git ls-files -z | tar --null -T - -c | tar -x -C "$ST"
 cp -r dist "$ST/"
+# O build guarda caminhos absolutos deste computador (Linux). No Windows, o Node recusa
+# "file:///home/..." (ERR_INVALID_FILE_URL_PATH) e o painel não abre. Troca por um caminho no
+# formato do Windows com a mesma estrutura: o adaptador só usa a relação entre dist/server e
+# dist/client, então funciona em qualquer pasta onde o pacote for extraído.
+ROOT_ABS="$(pwd)"
+find "$ST/dist/server" -name '*.mjs' -print0 | xargs -0 sed -i "s#file://${ROOT_ABS}/#file:///C:/stock-studio/#g; s#${ROOT_ABS}/#C:/stock-studio/#g"
+if grep -rqF "$ROOT_ABS" "$ST/dist"; then echo "ainda há caminhos de Linux em dist/"; exit 1; fi
 cp scripts/montar-pacote.ps1 "$ST/"
 cp scripts/COMO-USAR-windows.txt "$ST/COMO USAR.txt"
 
@@ -48,6 +55,12 @@ unzip -q -o "$WORK/realesrgan.zip" -d "$ST/tools/realesrgan"
 rm -f "$ST"/tools/realesrgan/{input.jpg,input2.jpg,onepiece_demo.mp4} "$ST"/tools/realesrgan/models/{realesrgan-x4plus-anime,realesr-animevideov3}*
 MODEL="$ST/tools/realesrgan/models/realesrgan-x4plus.bin"
 printf '%s' "$(sha256sum "$MODEL" | awk '{print $1}')" > "$MODEL.sha256"
+
+echo "==> Conferindo nomes e tamanhos de caminho (Windows)"
+(cd "$WORK" && find StockStudio | awk -F/ '{ n=$NF; sub(/\..*/, "", n); if (toupper(n) ~ /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/) { print "nome proibido no Windows: " $0; bad=1 } } END { exit bad }')
+MAXLEN=$(cd "$WORK" && find StockStudio | awk '{ print length($0) }' | sort -n | tail -1)
+echo "maior caminho dentro do pacote: $MAXLEN caracteres (limite do Windows: 260, com a pasta de destino)"
+[ "$MAXLEN" -le 180 ] || { echo "caminho longo demais para o Explorador do Windows"; exit 1; }
 
 echo "==> Compactando as 4 partes"
 cd "$WORK"

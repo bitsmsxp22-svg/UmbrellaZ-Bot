@@ -4,6 +4,16 @@ title Stock Studio
 REM Stock Studio - inicia o sistema no Windows (duplo clique).
 cd /d "%~dp0"
 
+REM Aberto de dentro do zip (sem extrair)? O Windows so copia este arquivo para uma pasta temporaria.
+if not exist "%~dp0package.json" (
+  echo.
+  echo Parece que o iniciar.bat foi aberto de dentro do arquivo .zip.
+  echo Clique com o botao direito no StockStudio-parte-1.zip, escolha "Extrair tudo..."
+  echo e depois abra o iniciar.bat que esta na pasta StockStudio extraida.
+  pause
+  exit /b 1
+)
+
 REM Pacote em partes: na primeira vez junta as partes 2, 3 e 4 (Node.js portatil e modelo de IA).
 if exist "%~dp0montar-pacote.ps1" (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0montar-pacote.ps1"
