@@ -48,6 +48,12 @@ export const DEFAULT_FREE_SITES = [
   'https://www.vidpexai.com/gpt-image-2',
   'https://raphael.app/gpt-image-2',
   'https://gpt-image.hk/',
+  // Limites pequenos ou possível cadastro (se pedirem login, o sistema pausa sozinho)
+  'https://gptimg2.ai/',
+  'https://gpt-img2.com/',
+  'https://gptimages2.com/',
+  'https://playgroundai.com/gpt-image-2',
+  'https://gpt-image-2-0.space.minimaxi.com/',
 ];
 
 /** Lista padrão da primeira versão (usuários antigos já "conheceram" estes). */

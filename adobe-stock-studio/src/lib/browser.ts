@@ -1,7 +1,10 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { log } from './bus';
 import { ensureDir, paths } from './paths';
 import type { Settings } from './settings';
+import { removeQuiet } from './util';
 
 type Globals = typeof globalThis & { __stockStudioBrowser?: BrowserManager };
 
@@ -88,12 +91,20 @@ class BrowserManager {
     await adobe.bringToFront().catch(() => undefined);
   }
 
+  /**
+   * Captura de tela + HTML da página (para diagnóstico). Guarda só as 200 capturas mais recentes.
+   * Devolve o caminho da imagem.
+   */
   async screenshot(page: Page, label: string): Promise<string | null> {
     try {
       ensureDir(paths.screenshots);
-      const file = `${paths.screenshots}/${Date.now()}-${label.replace(/[^a-z0-9-]/gi, '_')}.png`;
-      await page.screenshot({ path: file, fullPage: false });
-      return file;
+      const base = path.join(paths.screenshots, `${Date.now()}-${label.replace(/[^a-z0-9-]/gi, '_')}`);
+      await page.screenshot({ path: `${base}.png`, fullPage: false, timeout: 15_000 });
+      const html = await page.content().catch(() => '');
+      if (html) await fs.writeFile(`${base}.html`, `<!-- ${page.url()} -->\n${html.slice(0, 3_000_000)}`, 'utf8');
+      const files = (await fs.readdir(paths.screenshots)).sort();
+      for (const old of files.slice(0, Math.max(0, files.length - 400))) await removeQuiet(path.join(paths.screenshots, old));
+      return `${base}.png`;
     } catch {
       return null;
     }
