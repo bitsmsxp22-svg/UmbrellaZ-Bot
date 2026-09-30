@@ -84,6 +84,12 @@ Pontos importantes:
 
 ---
 
+## Diagnóstico e recomeço
+
+- **Baixar diagnóstico** (Configurações e aviso de erro do painel): zip com logs, situação de cada site, configurações e, para cada falha, a captura de tela + o HTML da página. Nunca inclui o perfil do navegador (logins).
+- **Recomeçar do zero** (Configurações): apaga os lotes pendentes da pasta de produção e libera todos os sites de GPT Image 2. Login, histórico e pesquisa continuam.
+- O envio ao Adobe é conferido por três sinais independentes do layout do portal: bytes enviados pela rede (cabeçalho Content-Length das requisições de upload), contador da aba "Novos" e mensagem de upload concluído.
+
 ## Onde ficam os arquivos
 
 | O quê | Onde |

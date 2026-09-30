@@ -1,5 +1,6 @@
 import path from 'node:path';
-import type { FileChooser, Locator, Page } from 'playwright';
+import fs from 'node:fs';
+import type { FileChooser, Locator, Page, Request } from 'playwright';
 import { browser } from './browser';
 import { log } from './bus';
 import { CONTRIBUTOR_TEXT, selectors, type SelectorKey } from './selectors';
@@ -112,30 +113,69 @@ export class AdobeContributorWeb {
     await input.first().setInputFiles(files);
   }
 
-  /** Envia as imagens e espera o portal terminar o upload. */
-  async uploadImages(files: string[]): Promise<boolean> {
-    await this.chooseFiles(files, 'contributor.fileInput', CONTRIBUTOR_TEXT.upload);
-    log.info(`Enviando ${files.length} imagens ao portal do Adobe Stock…`);
-    const timeout = (3 + files.length) * 60_000;
-    const start = Date.now();
-    let idle = 0;
-    while (Date.now() - start < timeout) {
-      await sleep(3000, this.signal);
-      const text = await this.bodyText();
-      if (CONTRIBUTOR_TEXT.uploadDone.test(text)) {
-        await this.page.keyboard.press('Escape').catch(() => undefined);
-        return true;
+  /** Número de arquivos na aba "Novos" do portal (ex.: "New (5)", "Novos (5)"), se aparecer na página. */
+  async newCount(): Promise<number | null> {
+    const text = await this.bodyText();
+    const m = text.match(/\b(?:new|novos?|nuevos?|nouveaux?|neu)\s*\(?\s*(\d{1,6})\s*\)?/i);
+    return m ? Number(m[1]) : null;
+  }
+
+  /** Captura de tela + HTML do portal (vai para o diagnóstico). */
+  async snapshot(label: string): Promise<string | null> {
+    return browser.screenshot(this.page, `adobe-${label}`);
+  }
+
+  /**
+   * Envia as imagens e acompanha o upload pelo TRÁFEGO DE REDE (quantos bytes subiram e se o
+   * portal respondeu OK), que não depende do layout do site. A mensagem de "upload concluído"
+   * também vale como sinal.
+   */
+  async uploadImages(files: string[]): Promise<{ doneText: boolean; uploadedBytes: number; totalBytes: number }> {
+    const totalBytes = files.reduce((sum, f) => sum + fs.statSync(f).size, 0);
+    let uploadedBytes = 0;
+    let lastUploadAt = Date.now();
+    const ctx = this.page.context();
+    const onFinished = async (req: Request) => {
+      if (!['POST', 'PUT', 'PATCH'].includes(req.method())) return;
+      // Em uploads de arquivo (FormData/Blob) o Chromium informa requestBodySize = 0;
+      // o tamanho real vem do cabeçalho Content-Length.
+      const headers = await req.allHeaders().catch(() => ({}) as Record<string, string>);
+      const sizes = await req.sizes().catch(() => null);
+      const size = Math.max(Number(headers['content-length'] ?? 0) || 0, sizes?.requestBodySize ?? 0);
+      const resp = await req.response().catch(() => null);
+      if (size > 50_000 && resp && resp.status() < 400) {
+        uploadedBytes += size;
+        lastUploadAt = Date.now();
       }
-      const busy = /(uploading|enviando|carregando|\d{1,3}\s?%)/i.test(text);
-      idle = busy ? 0 : idle + 1;
-      if (Date.now() - start > 30_000 && idle >= 5) break;
+    };
+    ctx.on('requestfinished', onFinished);
+    try {
+      await this.chooseFiles(files, 'contributor.fileInput', CONTRIBUTOR_TEXT.upload);
+      log.info(`Enviando ${files.length} imagem(ns) ao portal do Adobe Stock (${(totalBytes / 1048576).toFixed(1)} MB)…`);
+      const timeout = (3 + files.length * 2) * 60_000;
+      const start = Date.now();
+      let doneText = false;
+      while (Date.now() - start < timeout) {
+        await sleep(3000, this.signal);
+        const text = await this.bodyText();
+        if (CONTRIBUTOR_TEXT.uploadDone.test(text)) doneText = true;
+        if (uploadedBytes >= totalBytes * 0.9 || doneText) {
+          await sleep(4000, this.signal); // deixa o portal registrar os arquivos
+          break;
+        }
+        const busy = /(uploading|enviando|carregando|\d{1,3}\s?%)/i.test(text);
+        if (!busy && Date.now() - start > 45_000 && Date.now() - lastUploadAt > 30_000) break;
+      }
+      await this.snapshot('apos-envio');
+      await this.page.keyboard.press('Escape').catch(() => undefined);
+      return { doneText, uploadedBytes, totalBytes };
+    } finally {
+      ctx.off('requestfinished', onFinished);
     }
-    await this.page.keyboard.press('Escape').catch(() => undefined);
-    return false;
   }
 
   /** Confere, pelo nome do arquivo, quais imagens aparecem no portal (aba "Novos"). */
-  async confirm(filenames: string[], waitMs = 150_000): Promise<{ confirmed: string[]; missing: string[] }> {
+  async confirm(filenames: string[], waitMs = 20_000): Promise<{ confirmed: string[]; missing: string[] }> {
     const start = Date.now();
     let found = new Set<string>();
     for (;;) {
@@ -145,7 +185,7 @@ export class AdobeContributorWeb {
       const html = await this.page.content();
       found = new Set(filenames.filter((f) => html.includes(f) || html.includes(path.parse(f).name)));
       if (found.size === filenames.length || Date.now() - start >= waitMs) break;
-      await sleep(20_000, this.signal);
+      await sleep(10_000, this.signal);
     }
     return { confirmed: filenames.filter((f) => found.has(f)), missing: filenames.filter((f) => !found.has(f)) };
   }
@@ -248,37 +288,62 @@ export async function uploadBatchToAdobe(
     toSend = files.filter((f) => !already.confirmed.includes(f.filename));
   }
   // O portal costuma travar com muitos arquivos de uma vez: envia em grupos de até 20.
-  out.portalReportedSuccess = true;
+  const countBefore = await portal.newCount();
+  let uploadedBytes = 0;
+  let totalBytes = 0;
+  let doneText = toSend.length > 0;
   for (let i = 0; i < toSend.length; i += 20) {
-    const ok = await portal.uploadImages(toSend.slice(i, i + 20).map((f) => f.path));
-    out.portalReportedSuccess &&= ok;
+    const r = await portal.uploadImages(toSend.slice(i, i + 20).map((f) => f.path));
+    uploadedBytes += r.uploadedBytes;
+    totalBytes += r.totalBytes;
+    doneText &&= r.doneText;
     if (i + 20 < toSend.length) await portal.gotoUploads();
   }
   const check = await portal.confirm(files.map((f) => f.filename));
+  const countAfter = await portal.newCount();
   out.confirmed = check.confirmed;
   out.missing = check.missing;
+
+  // Três sinais independentes do layout: bytes enviados, contador "Novos" e mensagem do portal.
+  const byNetwork = totalBytes > 0 && uploadedBytes >= totalBytes * 0.9;
+  const byCount = countBefore !== null && countAfter !== null && countAfter - countBefore >= toSend.length;
+  out.portalReportedSuccess = toSend.length === 0 || byNetwork || byCount || doneText;
+  const how = [
+    byNetwork && `tráfego de rede: ${(uploadedBytes / 1048576).toFixed(1)} de ${(totalBytes / 1048576).toFixed(1)} MB enviados`,
+    byCount && `aba Novos: ${countBefore} → ${countAfter}`,
+    doneText && 'mensagem de upload concluído',
+    check.confirmed.length && `${check.confirmed.length} nome(s) de arquivo na página`,
+  ].filter(Boolean);
+  if (how.length) log.info(`Envio conferido por ${how.join('; ')}.`);
+
   if (out.confirmed.length === 0 && !out.portalReportedSuccess) {
-    out.notes.push('o portal não confirmou o recebimento das imagens');
+    const shot = await portal.snapshot('sem-confirmacao');
+    out.notes.push(
+      `o portal não confirmou o recebimento das imagens (enviado pela rede: ${(uploadedBytes / 1048576).toFixed(1)} de ${(totalBytes / 1048576).toFixed(1)} MB; aba Novos: ${countBefore ?? '?'} → ${countAfter ?? '?'})${shot ? ` — captura: ${shot}` : ''}`,
+    );
     return out;
   }
-  if (out.confirmed.length === 0) out.notes.push('portal informou sucesso, mas os nomes dos arquivos não foram encontrados na página');
 
   try {
     out.csvSent = await portal.uploadCsv(csvPath);
+    await portal.snapshot('apos-csv');
     log.success('CSV de metadados enviado ao portal.');
   } catch (err) {
     if (err instanceof Error && err.name === 'StopError') throw err;
-    out.notes.push(`CSV: ${errorMessage(err)}`);
+    const shot = await portal.snapshot('csv');
+    out.notes.push(`CSV: ${errorMessage(err)}${shot ? ` (captura: ${shot})` : ''}`);
     log.warn(`Não consegui enviar o CSV automaticamente (${errorMessage(err)}). Ele fica salvo em data/csv para envio manual.`);
   }
 
   if (settings.autoSubmit && out.csvSent) {
     try {
       out.submitted = await portal.submitForReview(files.map((f) => f.filename));
+      await portal.snapshot('apos-revisao');
       if (out.submitted) log.success('Arquivos marcados como IA generativa e enviados para revisão.');
     } catch (err) {
       if (err instanceof Error && err.name === 'StopError') throw err;
-      out.notes.push(`revisão: ${errorMessage(err)}`);
+      const shot = await portal.snapshot('revisao');
+      out.notes.push(`revisão: ${errorMessage(err)}${shot ? ` (captura: ${shot})` : ''}`);
       log.warn(`Envio para revisão não concluído (${errorMessage(err)}). Os arquivos ficam na aba "Novos" do portal com os metadados do CSV.`);
     }
   }

@@ -32,6 +32,7 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
       <button class="btn btn-start" id="btn-open">Abrir navegador</button>
       <button class="btn" id="btn-close">Fechar navegador</button>
       <a class="btn" href="/api/diagnostico" title="Logs, situação dos sites e capturas das falhas (sem logins)">Baixar diagnóstico</a>
+      <button class="btn" id="btn-reset" title="Apaga os lotes pendentes da Área de Trabalho e libera todos os sites">Recomeçar do zero</button>
     </div>
   </section>
 
@@ -352,6 +353,12 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
         .join('');
     }
     loadSites();
+    document.getElementById('btn-reset')!.addEventListener('click', async () => {
+      if (!confirm('Apagar os lotes pendentes da pasta de produção e liberar todos os sites? (login, histórico e pesquisa continuam)')) return;
+      const r = await post('/api/reset');
+      toast(r.message, r.ok ? 'ok' : 'error');
+      loadSites();
+    });
     document.getElementById('btn-adobe-check')!.addEventListener('click', async (e) => {
       const btn = e.currentTarget as HTMLButtonElement;
       btn.disabled = true;
