@@ -39,5 +39,6 @@ export const CONTRIBUTOR_TEXT = {
   saveWork: /(save work|salvar trabalho|salvar)/i,
   submit: /(submit\s*\d*\s*(files?)?|enviar\s*\d*\s*(arquivos?)?)/i,
   uploadDone: /(upload(ed)?\s+(complete|successful|succeeded)|uploads? complete|carregad[oa]s? com sucesso|envio conclu[ií]do|upload conclu[ií]do)/i,
+  submitLimit: /(submission limit|weekly limit|reached (your|the) (weekly )?limit|limite (semanal|de envio)|atingiu o limite)/i,
   csvDone: /(csv.*(processed|uploaded|success)|metadata.*(applied|updated)|processad|metadados atualizados|sucesso)/i,
 } as const;

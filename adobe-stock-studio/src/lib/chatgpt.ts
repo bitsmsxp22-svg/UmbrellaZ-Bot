@@ -1,5 +1,6 @@
 import type { Page } from 'playwright';
 import { browser } from './browser';
+import { downloadImage } from './providers/web-helpers';
 import { log } from './bus';
 import { selectors, type SelectorKey } from './selectors';
 import type { AspectRatio, Settings } from './settings';
@@ -14,6 +15,7 @@ const LIMIT_PATTERN =
   /(hit (the|your) .*limit|reached .*limit|usage limit|rate limit|limite de (uso|gera|imagens)|atingiu o limite|try again (later|in|after)|tente novamente (mais tarde|em|daqui)|too many requests|muitas solicita)/i;
 const REFUSAL_PATTERN =
   /(can't (help|create|generate)|cannot (create|generate)|unable to (create|generate)|não (posso|consigo) (criar|gerar)|content polic|polític[ao] de conte|violat|viola)/i;
+const STAY_LOGGED_OUT = /(stay logged out|continue (logged out|without (an )?account)|continuar (sem conta|desconectado)|permanecer desconectado|seguir sin (iniciar|cuenta))/i;
 const BUSY_PATTERN = /(creating image|generating image|criando imagem|gerando imagem|getting started|starting image|preparing)/i;
 
 const SIZE_HINT: Record<AspectRatio, string> = {
@@ -60,26 +62,49 @@ export class ChatGPTWeb {
     return url.toString();
   }
 
-  /** Abre uma conversa nova e espera a caixa de mensagem ficar disponível. */
-  async newChat(): Promise<void> {
+  /**
+   * Abre uma conversa nova e espera a caixa de mensagem. Sem conta, o ChatGPT funciona para texto
+   * (prompts): o convite de login é fechado com "Continuar desconectado". Para gerar imagens pelo
+   * ChatGPT (opcional) é preciso estar logado.
+   */
+  async newChat(requireLogin: boolean): Promise<void> {
     throwIfAborted(this.signal);
     await this.page.goto(this.chatUrl(), { waitUntil: 'domcontentloaded', timeout: 60_000 });
     const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       throwIfAborted(this.signal);
+      await this.stayLoggedOut();
       if (await this.isVisible(this.sel('chatgpt.composer'))) return;
-      if (await this.isVisible(this.sel('chatgpt.loginButton'))) {
+      if (requireLogin && (await this.isVisible(this.sel('chatgpt.loginButton')))) {
         await this.page.bringToFront().catch(() => undefined);
-        throw new NeedsLoginError('chatgpt', 'O ChatGPT não está logado. Clique em "Abrir navegador para login", entre na sua conta e ligue a produção de novo.');
+        throw new NeedsLoginError('chatgpt', 'Gerar imagens pelo ChatGPT exige login. Use a opção "Sites grátis de GPT Image 2 (sem login)" ou entre na conta pelo botão "Abrir navegador".');
       }
       await sleep(1000, this.signal);
     }
-    await this.page.bringToFront().catch(() => undefined);
     const shot = await browser.screenshot(this.page, 'chatgpt-sem-caixa');
-    throw new NeedsLoginError(
-      'chatgpt',
-      `Não encontrei a caixa de mensagem do ChatGPT (login pendente ou verificação "sou humano").${shot ? ` Captura: ${shot}` : ''}`,
-    );
+    const detail = `Não encontrei a caixa de mensagem do ChatGPT (verificação "sou humano" ou limite de uso sem conta).${shot ? ` Captura: ${shot}` : ''}`;
+    if (requireLogin) throw new NeedsLoginError('chatgpt', detail);
+    throw new Error(detail);
+  }
+
+  /** Fecha o convite "Entrar / Cadastrar" do ChatGPT sem conta. */
+  private async stayLoggedOut(): Promise<void> {
+    for (const role of ['link', 'button'] as const) {
+      const loc = this.page.getByRole(role, { name: STAY_LOGGED_OUT }).first();
+      if (await loc.isVisible().catch(() => false)) {
+        await loc.click().catch(() => undefined);
+        await sleep(800, this.signal);
+        return;
+      }
+    }
+  }
+
+  /** O ChatGPT sem conta pede cadastro depois de algumas mensagens. */
+  private async loginWallVisible(): Promise<boolean> {
+    const dialog = this.page.getByRole('dialog').last();
+    if (!(await dialog.isVisible().catch(() => false))) return false;
+    const text = (await dialog.innerText().catch(() => '')).slice(0, 600);
+    return /(log in|sign up|entrar|cadastr|create (a free )?account|crie uma conta)/i.test(text) && !STAY_LOGGED_OUT.test(text);
   }
 
   private async isVisible(selector: string): Promise<boolean> {
@@ -144,6 +169,7 @@ export class ChatGPTWeb {
         stable = 0;
         continue;
       }
+      if (await this.loginWallVisible()) throw new Error('o ChatGPT sem conta pediu login/cadastro para continuar');
       const snap = await this.snapshot().catch(() => ({ text: '', images: [] }) as TurnSnapshot);
       const signature = `${snap.text.length}|${snap.images.map((i) => `${i.src}:${i.w}:${i.complete}`).join(',')}`;
       stable = signature === lastSignature ? stable + 1 : 0;
@@ -173,7 +199,7 @@ export class ChatGPTWeb {
 
   /** Envia uma pergunta de texto e devolve a resposta (usado para criar prompts/metadados). */
   async ask(message: string, timeoutMs = 4 * 60_000): Promise<string> {
-    await this.newChat();
+    await this.newChat(false);
     await this.send(message);
     const snap = await this.waitForReply(timeoutMs, false);
     if (LIMIT_PATTERN.test(snap.text) && snap.text.length < 600) this.checkProblems(snap.text);
@@ -182,7 +208,7 @@ export class ChatGPTWeb {
 
   /** Gera uma imagem no ChatGPT e devolve os bytes do arquivo original. */
   async generateImage(prompt: string): Promise<Buffer> {
-    await this.newChat();
+    await this.newChat(true);
     const message = [
       'Generate exactly one image now. Do not ask questions and do not reply with text only.',
       `Format: ${SIZE_HINT[this.settings.aspectRatio]}, maximum resolution and detail, commercial stock quality.`,
@@ -198,30 +224,6 @@ export class ChatGPTWeb {
     }
     const best = [...snap.images].sort((a, b) => b.w * b.h - a.w * a.h)[0];
     log.info(`Imagem pronta no ChatGPT (${best.w}×${best.h}). Baixando…`);
-    return this.download(best.src);
-  }
-
-  private async download(src: string): Promise<Buffer> {
-    if (src.startsWith('data:')) return Buffer.from(src.split(',')[1] ?? '', 'base64');
-    if (src.startsWith('http')) {
-      try {
-        const resp = await this.page.context().request.get(src, { timeout: 120_000 });
-        if (resp.ok()) {
-          const body = await resp.body();
-          if (body.length > 10_000) return body;
-        }
-      } catch {
-        /* tenta pelo navegador abaixo */
-      }
-    }
-    // blob: ou URL que exige o contexto da página → baixa pelo próprio navegador.
-    const b64 = await this.page.evaluate(async (url) => {
-      const r = await fetch(url, { credentials: 'include' });
-      const buf = new Uint8Array(await r.arrayBuffer());
-      let bin = '';
-      for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-      return btoa(bin);
-    }, src);
-    return Buffer.from(b64, 'base64');
+    return downloadImage(this.page, best.src);
   }
 }

@@ -22,6 +22,7 @@ export interface HistoryEntry {
   height: number;
   sizeBytes: number;
   upscaler: string;
+  generator: string;
   status: SentStatus;
   sentAt: string;
   deletedFromDesktop: boolean;
@@ -69,7 +70,7 @@ export function historySummary(entries = readHistory()) {
 /** Exporta o log completo (inclui colunas extras além do padrão do Adobe). */
 export function historyCsv(entries = readHistory()): string {
   const esc = (v: string | number | boolean) => `"${String(v).replace(/"/g, '""')}"`;
-  const header = ['Data', 'Lote', 'Arquivo', 'Titulo', 'Palavras-chave', 'Categoria', 'Nicho', 'Inspiracao (rank)', 'Prompt', 'Resolucao', 'Tamanho (MB)', 'Ampliacao', 'Status', 'Apagado do desktop'];
+  const header = ['Data', 'Lote', 'Arquivo', 'Titulo', 'Palavras-chave', 'Categoria', 'Nicho', 'Inspiracao (rank)', 'Prompt', 'Resolucao', 'Tamanho (MB)', 'Gerada em', 'Ampliacao', 'Status', 'Apagado do desktop'];
   const rows = entries.map((e) =>
     [
       e.sentAt,
@@ -83,6 +84,7 @@ export function historyCsv(entries = readHistory()): string {
       e.prompt,
       `${e.width}x${e.height}`,
       (e.sizeBytes / 1048576).toFixed(1),
+      e.generator ?? '',
       e.upscaler,
       e.status,
       e.deletedFromDesktop ? 'sim' : 'nao',

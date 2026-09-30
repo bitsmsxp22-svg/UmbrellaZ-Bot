@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { log } from './bus';
@@ -56,7 +57,7 @@ export function realEsrganStatus(settings: Settings): UpscalerStatus {
       available: false,
       binary: null,
       models: [],
-      message: 'Real-ESRGAN não instalado. Rode "npm run setup:upscaler" (ou informe o caminho do executável).',
+      message: 'Real-ESRGAN ainda não instalado — ele é baixado automaticamente ao ligar a produção (ou pelo botão "Instalar Real-ESRGAN").',
     };
   }
   const modelsDir = path.join(path.dirname(binary), 'models');
@@ -92,37 +93,38 @@ function runRealEsrgan(binary: string, input: string, output: string, model: str
       signal.removeEventListener('abort', onAbort);
       if (signal.aborted) return reject(new StopError());
       if (code === 0 && fs.existsSync(output)) return resolve();
-      reject(new Error(`Real-ESRGAN saiu com código ${code}: ${stderr.split('\n').filter(Boolean).slice(-3).join(' | ')}`));
+      const detail = stderr.split('\n').filter(Boolean).slice(-3).join(' | ');
+      const hint = /vkCreateInstance|invalid gpu|vulkan/i.test(detail)
+        ? ' — placa de vídeo com Vulkan não encontrada: atualize o driver de vídeo (NVIDIA/AMD/Intel) e tente de novo'
+        : '';
+      reject(new Error(`Real-ESRGAN saiu com código ${code}: ${detail}${hint}`));
     });
   });
 }
 
-let warnedMissing = false;
-
 /**
- * Amplia a imagem gerada (≈1–2 MP) para o tamanho ideal do Adobe Stock.
- * 1) Real-ESRGAN x4 (IA, roda local na GPU via Vulkan) → 2) ajuste fino com Lanczos para o
- * lado maior configurado → JPEG sRGB. Sem Real-ESRGAN, usa apenas Lanczos + nitidez leve.
+ * Amplia a imagem gerada (≈1–2 MP) para o tamanho ideal do Adobe Stock com IA:
+ * Real-ESRGAN x4 (roda local na GPU via Vulkan) → ajuste fino para o lado maior configurado → JPEG sRGB.
+ * Se o Real-ESRGAN falhar, a imagem falha — ampliação sem IA (Lanczos) só existe no modo simulação.
  */
 export async function upscaleForAdobe(input: string, outputJpg: string, settings: Settings, signal: AbortSignal): Promise<UpscaleResult> {
   let source = input;
-  let method = 'Lanczos (sharp)';
+  let method = 'Lanczos (sem IA)';
   const tmpPng = outputJpg.replace(/\.jpe?g$/i, '') + '.x4.png';
+  const lanczosAllowed = settings.upscaler === 'sharp' || settings.simulationMode;
 
   if (settings.upscaler === 'realesrgan') {
     const status = realEsrganStatus(settings);
-    if (status.available && status.binary) {
-      try {
-        await runRealEsrgan(status.binary, input, tmpPng, settings.realesrganModel, signal);
-        source = tmpPng;
-        method = `Real-ESRGAN x4 (${settings.realesrganModel})`;
-      } catch (err) {
-        if (err instanceof StopError) throw err;
-        log.warn(`Real-ESRGAN falhou (${err instanceof Error ? err.message : err}). Usando Lanczos nesta imagem.`);
-      }
-    } else if (!warnedMissing) {
-      warnedMissing = true;
-      log.warn(status.message + ' Enquanto isso, a ampliação usa Lanczos.');
+    try {
+      if (!status.available || !status.binary) throw new Error(status.message);
+      await runRealEsrgan(status.binary, input, tmpPng, settings.realesrganModel, signal);
+      source = tmpPng;
+      method = `Real-ESRGAN x4 (${settings.realesrganModel})`;
+    } catch (err) {
+      if (err instanceof StopError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!lanczosAllowed) throw new Error(`ampliação com IA falhou: ${msg}`);
+      log.warn(`Real-ESRGAN indisponível (${msg}). Modo simulação: usando Lanczos só para o teste.`);
     }
   }
 
@@ -159,6 +161,20 @@ export async function upscaleForAdobe(input: string, outputJpg: string, settings
     }
   } finally {
     if (source !== input) fs.rmSync(tmpPng, { force: true });
+  }
+}
+
+/** Autoteste rápido (imagem 64×64): confirma que a IA de ampliação roda nesta máquina antes de produzir. */
+export async function selfTestRealEsrgan(settings: Settings, signal: AbortSignal): Promise<void> {
+  const status = realEsrganStatus(settings);
+  if (!status.available || !status.binary) throw new Error(status.message);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'realesrgan-teste-'));
+  try {
+    const input = path.join(dir, 'in.png');
+    await sharp({ create: { width: 64, height: 64, channels: 3, background: '#808080' } }).png().toFile(input);
+    await runRealEsrgan(status.binary, input, path.join(dir, 'out.png'), settings.realesrganModel, signal);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 

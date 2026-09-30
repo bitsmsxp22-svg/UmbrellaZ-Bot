@@ -26,7 +26,7 @@ const steps = ['Pesquisa', 'Prompts', 'Geração', 'Ampliação IA', 'CSV', 'Env
       <div class="progress"><div id="progress"></div></div>
       <div class="alert" id="alert" hidden>
         <div id="alert-text"></div>
-        <button class="btn" id="btn-login" hidden>Abrir navegador para login</button>
+        <button class="btn" id="btn-login" hidden>Abrir navegador</button>
       </div>
     </div>
     <div class="hero-actions">
@@ -181,7 +181,7 @@ const steps = ['Pesquisa', 'Prompts', 'Geração', 'Ampliação IA', 'CSV', 'Env
         <div>
           <div class="muted" style="font-size:.8rem">Imagem ${c.index} de ${c.total} · nicho <b>${esc(c.niche)}</b>${item ? ` · categoria ${esc(item.category)}` : ''}</div>
           <div class="current-title">${esc(c.title)}</div>
-          ${item ? `<div class="muted" style="font-size:.8rem;margin-top:4px">Inspirada na #${item.inspirationRank} mais baixada: “${esc(item.inspiration)}” · prompt por ${item.engine === 'chatgpt' ? 'ChatGPT' : 'gerador local'}</div>` : ''}
+          ${item ? `<div class="muted" style="font-size:.8rem;margin-top:4px">Inspirada na #${item.inspirationRank} mais baixada: “${esc(item.inspiration)}” · prompt por ${item.engine === 'chatgpt' ? 'ChatGPT (sem login)' : 'gerador local'}${item.generator ? ` · imagem: ${esc(item.generator)}` : ''}</div>` : ''}
           <div class="prompt-box">${esc(c.prompt)}</div>
           ${item ? `<div class="chips">${item.keywords.map((k: string) => `<span class="chip">${esc(k)}</span>`).join('')}</div>` : ''}
         </div>`;
@@ -208,6 +208,7 @@ const steps = ['Pesquisa', 'Prompts', 'Geração', 'Ampliação IA', 'CSV', 'Env
             <div class="body">
               <div class="title">${esc(it.title)}</div>
               <div class="meta"><span class="${cls}">${label}</span> ${size}</div>
+              ${it.generator ? `<div class="meta">${esc(it.generator.replace('GPT Image 2 · ', ''))}</div>` : ''}
             </div>
           </div>`;
         })

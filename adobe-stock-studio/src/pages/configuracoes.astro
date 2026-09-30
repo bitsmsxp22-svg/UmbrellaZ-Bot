@@ -22,14 +22,14 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
   </div>
 
   <section class="panel" style="margin-bottom:16px">
-    <div class="panel-head"><h2>1 · Login (feito uma única vez)</h2></div>
+    <div class="panel-head"><h2>1 · Navegador do sistema (login só do Adobe Stock)</h2></div>
     <p class="muted" style="margin-top:0">
-      O sistema não usa chaves de API nem guarda senhas. Ele controla um navegador com perfil próprio
-      (<code>data/browser-profile</code>). Abra o navegador, entre no <b>ChatGPT</b> e no <b>portal do colaborador do Adobe Stock</b>,
-      e depois feche. O login fica salvo.
+      <b>ChatGPT e GPT Image 2 são usados sem login e sem chave de API.</b> O único login é o do <b>portal do colaborador do Adobe Stock</b>, porque as imagens vão para a sua conta. Ele é feito uma vez no navegador
+      do sistema (perfil em <code>data/browser-profile</code>) e fica salvo. O botão abaixo também abre o ChatGPT e o primeiro
+      site de GPT Image 2, para você aceitar avisos de cookies, se aparecerem.
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button class="btn btn-start" id="btn-open">Abrir navegador para login</button>
+      <button class="btn btn-start" id="btn-open">Abrir navegador</button>
       <button class="btn" id="btn-close">Fechar navegador</button>
     </div>
   </section>
@@ -70,8 +70,12 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
           <label for="deleteAfterUpload">Apagar as imagens do desktop depois do envio<span class="help">O log, as miniaturas e o CSV continuam salvos em <code>data/</code>.</span></label>
         </div>
         <div class="check">
+          <input type="checkbox" id="keepAwake" name="keepAwake" checked={s.keepAwake} />
+          <label for="keepAwake">Não deixar o computador dormir durante a produção<span class="help">Para produzir o dia inteiro. Volta ao normal quando a produção para.</span></label>
+        </div>
+        <div class="check">
           <input type="checkbox" id="simulationMode" name="simulationMode" checked={s.simulationMode} />
-          <label for="simulationMode">Modo simulação (teste)<span class="help">Roda o fluxo inteiro sem ChatGPT e sem enviar ao Adobe: imagens abstratas locais, ampliação, CSV, log e limpeza.</span></label>
+          <label for="simulationMode">Modo simulação (só para teste)<span class="help">Roda o fluxo inteiro sem gerar nada de verdade e sem enviar ao Adobe: imagens abstratas locais, ampliação, CSV, log e limpeza. Desligue para produzir.</span></label>
         </div>
       </section>
 
@@ -115,15 +119,40 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
       </section>
 
       <section class="panel">
-        <div class="panel-head"><h2>4 · Prompts e geração (ChatGPT · GPT Image)</h2></div>
+        <div class="panel-head"><h2>4 · Prompts (ChatGPT sem login) e imagens (GPT Image 2 sem login)</h2></div>
         <div class="row">
           <div class="field">
             <label for="promptEngine">Quem escreve os prompts</label>
             <select id="promptEngine" name="promptEngine">
-              <option value="chatgpt" selected={s.promptEngine === 'chatgpt'}>ChatGPT (recomendado)</option>
+              <option value="chatgpt" selected={s.promptEngine === 'chatgpt'}>ChatGPT sem login (recomendado)</option>
               <option value="local" selected={s.promptEngine === 'local'}>Gerador local</option>
             </select>
-            <span class="help">O ChatGPT recebe o ranking e cria prompt, título, palavras-chave e categoria. Se falhar, o gerador local assume.</span>
+            <span class="help">O ChatGPT (sem conta) recebe o ranking e escreve prompt, título, palavras-chave e categoria. Se ele pedir cadastro, o gerador local assume naquele lote.</span>
+          </div>
+          <div class="field">
+            <label for="imageProvider">Onde gerar com GPT Image 2</label>
+            <select id="imageProvider" name="imageProvider">
+              <option value="free-sites" selected={s.imageProvider === 'free-sites'}>Sites grátis de GPT Image 2 (sem login)</option>
+              <option value="chatgpt" selected={s.imageProvider === 'chatgpt'}>ChatGPT com conta logada (opcional)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="freeSites">Sites gratuitos de GPT Image 2 (um por linha, usados em rodízio)</label>
+          <textarea id="freeSites" name="freeSites">{s.freeSites.join('\n')}</textarea>
+          <span class="help">Cada site tem um limite grátis por dia. Quando um avisa que acabou (ou pede cadastro), o sistema pausa esse site e passa para o próximo. Nenhum limite é burlado: sem troca de IP, sem resolver captcha.</span>
+        </div>
+        <div class="table-wrap" style="margin-bottom:14px">
+          <table id="sites-table">
+            <thead><tr><th>Site</th><th>OK</th><th>Falhas</th><th>Situação</th></tr></thead>
+            <tbody><tr><td colspan="4" class="muted">Carregando…</td></tr></tbody>
+          </table>
+        </div>
+        <button type="button" class="btn" id="btn-sites-reset" style="margin-bottom:14px">Liberar todos os sites pausados</button>
+        <div class="row">
+          <div class="field">
+            <label for="siteCooldownHours">Pausa de um site no limite (horas)</label>
+            <input type="number" id="siteCooldownHours" name="siteCooldownHours" min="1" max="168" value={s.siteCooldownHours} />
           </div>
           <div class="field">
             <label for="aspectRatio">Formato da imagem</label>
@@ -132,25 +161,24 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
             </select>
           </div>
         </div>
-        <div class="field">
-          <label for="chatgptUrl">Endereço do ChatGPT</label>
-          <input type="url" id="chatgptUrl" name="chatgptUrl" value={s.chatgptUrl} />
-          <span class="help">Para fixar um GPT/modelo específico, cole aqui o link dele.</span>
-        </div>
         <div class="row">
           <div class="field">
             <label for="imageTimeoutMin">Tempo máximo por imagem (min)</label>
             <input type="number" id="imageTimeoutMin" name="imageTimeoutMin" min="1" max="30" value={s.imageTimeoutMin} />
           </div>
           <div class="field">
-            <label for="rateLimitCooldownMin">Pausa ao atingir limite (min)</label>
+            <label for="rateLimitCooldownMin">Espera quando tudo estiver no limite (min)</label>
             <input type="number" id="rateLimitCooldownMin" name="rateLimitCooldownMin" min="1" max="1440" value={s.rateLimitCooldownMin} />
-            <span class="help">Usada quando o ChatGPT não informa o tempo de espera.</span>
+            <span class="help">Usada quando nenhum site informa quando libera.</span>
           </div>
+        </div>
+        <div class="field">
+          <label for="chatgptUrl">Endereço do ChatGPT</label>
+          <input type="url" id="chatgptUrl" name="chatgptUrl" value={s.chatgptUrl} />
         </div>
         <div class="check">
           <input type="checkbox" id="useTemporaryChat" name="useTemporaryChat" checked={s.useTemporaryChat} />
-          <label for="useTemporaryChat">Usar chat temporário<span class="help">Não enche o seu histórico do ChatGPT com as conversas de produção.</span></label>
+          <label for="useTemporaryChat">Usar chat temporário<span class="help">Só faz diferença se um dia você usar o ChatGPT logado.</span></label>
         </div>
       </section>
 
@@ -160,14 +188,11 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
           <span class={upscaler.available ? 'badge badge-ok' : 'badge badge-wait'}>{upscaler.available ? 'Instalado' : 'Não instalado'}</span>
           {upscaler.message}
         </div>
+        <p class="muted" style="margin-top:0;font-size:.85rem">
+          Toda imagem é ampliada 4× pela IA Real-ESRGAN (roda no seu computador, na placa de vídeo via Vulkan) e depois ajustada
+          para o tamanho final. Se o Real-ESRGAN falhar, a imagem não é enviada — não existe ampliação "comum" de reserva.
+        </p>
         <div class="row">
-          <div class="field">
-            <label for="upscaler">Método</label>
-            <select id="upscaler" name="upscaler">
-              <option value="realesrgan" selected={s.upscaler === 'realesrgan'}>Real-ESRGAN x4 (IA, recomendado)</option>
-              <option value="sharp" selected={s.upscaler === 'sharp'}>Somente Lanczos (sem IA)</option>
-            </select>
-          </div>
           <div class="field">
             <label for="realesrganModel">Modelo</label>
             <select id="realesrganModel" name="realesrganModel">
@@ -177,11 +202,12 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
                 ))
               }
             </select>
+            <span class="help">realesrgan-x4plus é o melhor para fotos.</span>
           </div>
-        </div>
-        <div class="field">
-          <label for="realesrganPath">Caminho do executável (opcional)</label>
-          <input type="text" id="realesrganPath" name="realesrganPath" value={s.realesrganPath} placeholder="vazio = tools/realesrgan (npm run setup:upscaler)" />
+          <div class="field">
+            <label for="realesrganPath">Caminho do executável (opcional)</label>
+            <input type="text" id="realesrganPath" name="realesrganPath" value={s.realesrganPath} placeholder="vazio = tools/realesrgan (instalação automática)" />
+          </div>
         </div>
         <div class="row">
           <div class="field">
@@ -194,11 +220,21 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
             <input type="number" id="jpegQuality" name="jpegQuality" min="70" max="100" value={s.jpegQuality} />
           </div>
         </div>
-        <button type="button" class="btn" id="btn-upscaler">Verificar Real-ESRGAN</button>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button type="button" class="btn btn-start" id="btn-upscaler-install">Instalar Real-ESRGAN</button>
+          <button type="button" class="btn" id="btn-upscaler">Verificar Real-ESRGAN</button>
+        </div>
       </section>
 
       <section class="panel">
         <div class="panel-head"><h2>6 · Envio ao Adobe Stock</h2></div>
+        <ol class="muted" style="margin:0 0 14px;padding-left:18px;font-size:.85rem;display:grid;gap:4px">
+          <li>Crie (grátis) sua conta de colaborador em <a href="https://contributor.stock.adobe.com/" target="_blank" rel="noreferrer">contributor.stock.adobe.com</a>, aceite os termos e preencha os dados de pagamento/impostos.</li>
+          <li>Clique em <b>Abrir navegador</b> (seção 1) e entre na sua conta de colaborador nessa janela. O login fica salvo.</li>
+          <li>Clique em <b>Testar conexão com o Adobe Stock</b> abaixo — deve aparecer "Conectado".</li>
+          <li>Pronto: a cada lote o sistema envia as imagens, envia o CSV (título ≤ 70 caracteres sem vírgulas, até 49 palavras-chave, categoria), marca <b>"Criado com ferramentas de IA generativa"</b> e <b>"Pessoas e propriedades fictícias"</b> e envia para revisão.</li>
+        </ol>
+        <button type="button" class="btn btn-start" id="btn-adobe-check" style="margin-bottom:14px">Testar conexão com o Adobe Stock</button>
         <div class="field">
           <label for="adobeContributorUrl">Portal do colaborador</label>
           <input type="url" id="adobeContributorUrl" name="adobeContributorUrl" value={s.adobeContributorUrl} />
@@ -206,7 +242,7 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
         <div class="check">
           <input type="checkbox" id="autoSubmit" name="autoSubmit" checked={s.autoSubmit} />
           <label for="autoSubmit">Enviar para revisão automaticamente
-            <span class="help">Marca "Criado com ferramentas de IA generativa" e "Pessoas e propriedades fictícias" (exigências do Adobe para conteúdo de IA) e clica em enviar. Desmarcado, os arquivos ficam na aba "Novos" com os metadados do CSV.</span>
+            <span class="help">Marca "Criado com ferramentas de IA generativa" e "Pessoas e propriedades fictícias" (obrigatórios para conteúdo de IA) e clica em enviar. Se o Adobe avisar que o limite semanal de envios foi atingido, os arquivos ficam na aba "Novos" com os metadados do CSV e você envia depois. Desmarcado, eles sempre ficam em "Novos" para você revisar.</span>
           </label>
         </div>
         <div class="field">
@@ -270,6 +306,7 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
         else data[el.name] = el.value;
       }
       data.niches = String(data.niches ?? '').split('\n').map((n) => n.trim()).filter(Boolean);
+      data.freeSites = String(data.freeSites ?? '').split('\n').map((n) => n.trim()).filter(Boolean);
       const r = await post('/api/settings', data);
       toast(r.ok ? 'Configurações salvas.' : r.message, r.ok ? 'ok' : 'error');
     });
@@ -280,6 +317,46 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
     });
     document.getElementById('btn-close')!.addEventListener('click', async () => {
       const r = await post('/api/browser/close');
+      toast(r.message, r.ok ? 'ok' : 'error');
+    });
+    const esc = (v: unknown) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+    async function loadSites() {
+      const r = await (await fetch('/api/sites')).json();
+      const body = document.querySelector('#sites-table tbody')!;
+      body.innerHTML = r.sites
+        .map((s: any) => {
+          const host = new URL(s.url).hostname.replace(/^www\./, '');
+          const state = s.paused
+            ? `<span class="badge badge-wait">Pausado até ${new Date(s.pausedUntil).toLocaleString('pt-BR')}</span> <span class="muted">${esc(s.pauseReason)}</span>`
+            : s.lastError
+              ? `<span class="badge">Disponível</span> <span class="muted">último erro: ${esc(s.lastError)}</span>`
+              : s.ok
+                ? '<span class="badge badge-ok">Funcionando</span>'
+                : '<span class="badge">Ainda não usado</span>';
+          return `<tr><td><a href="${esc(s.url)}" target="_blank" rel="noreferrer">${esc(host)}</a></td><td>${s.ok}</td><td>${s.fail}</td><td>${state}</td></tr>`;
+        })
+        .join('');
+    }
+    loadSites();
+    document.getElementById('btn-adobe-check')!.addEventListener('click', async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      btn.disabled = true;
+      toast('Abrindo o portal do colaborador…', 'info');
+      const r = await post('/api/adobe-check');
+      btn.disabled = false;
+      toast(r.message, r.ok ? 'ok' : 'error');
+    });
+    document.getElementById('btn-sites-reset')!.addEventListener('click', async () => {
+      const r = await post('/api/sites');
+      toast(r.message, 'ok');
+      loadSites();
+    });
+    document.getElementById('btn-upscaler-install')!.addEventListener('click', async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      btn.disabled = true;
+      toast('Baixando o Real-ESRGAN (~45 MB)…', 'info');
+      const r = await post('/api/upscaler');
+      btn.disabled = false;
       toast(r.message, r.ok ? 'ok' : 'error');
     });
     document.getElementById('btn-upscaler')!.addEventListener('click', async () => {

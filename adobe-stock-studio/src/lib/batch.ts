@@ -17,6 +17,8 @@ export interface BatchItem extends ImageConcept {
   height?: number;
   sizeBytes?: number;
   upscaler?: string;
+  /** Onde a imagem foi gerada (ex.: "GPT Image 2 · imagegpt2.com"). */
+  generator?: string;
   error?: string;
 }
 
@@ -36,16 +38,19 @@ const MANIFEST = 'lote.json';
 
 /** Cria a pasta do lote na Área de Trabalho com o manifesto (permite retomar se parar no meio). */
 export async function createBatch(outputDir: string, concepts: ImageConcept[]): Promise<Batch> {
-  const id = `lote-${timestamp()}`;
+  const stamp = timestamp();
+  const id = `lote-${stamp}`;
   const dir = path.join(outputDir, id);
   await fs.mkdir(dir, { recursive: true });
+  const short = stamp.slice(2).replace('-', ''); // AAMMDDhhmmss
   const items: BatchItem[] = concepts.map((c, i) => {
-    const itemId = `${timestamp()}-${String(i + 1).padStart(2, '0')}-${randomId()}`;
+    const nn = String(i + 1).padStart(2, '0');
     return {
       ...c,
-      id: itemId,
-      // Nome único e descritivo: o CSV do Adobe liga metadados à imagem pelo nome do arquivo.
-      filename: `${slugify(c.title, 50)}-${itemId}.jpg`,
+      id: `${stamp}-${nn}-${randomId()}`,
+      // O CSV do Adobe liga os metadados à imagem pelo nome do arquivo, que deve ser único
+      // e ter no máximo 30 caracteres: "business-t-26093019361501.jpg" (29).
+      filename: `${slugify(c.title, 10)}-${short}${nn}.jpg`,
       status: 'pending',
       attempts: 0,
     };

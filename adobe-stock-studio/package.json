@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Sistema local em Astro que pesquisa as imagens mais vendidas do Adobe Stock, cria prompts, gera imagens no ChatGPT (GPT Image), amplia com Real-ESRGAN, monta o CSV e envia tudo para o Adobe Stock automaticamente.",
+  "description": "Sistema local em Astro que pesquisa as imagens mais vendidas do Adobe Stock, cria prompts com o ChatGPT (sem login), gera imagens com GPT Image 2 (sites gratuitos, sem login e sem API), amplia com a IA Real-ESRGAN, monta o CSV e envia tudo para o Adobe Stock automaticamente.",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
     "start": "node ./dist/server/entry.mjs",
     "preview": "astro preview",
     "check": "astro check",
-    "setup:upscaler": "node ./scripts/setup-upscaler.mjs",
+    "setup:upscaler": "node --import tsx ./scripts/setup-upscaler.ts",
     "setup:browser": "playwright install chromium",
     "test": "node --import tsx --test tests/*.test.ts"
   },

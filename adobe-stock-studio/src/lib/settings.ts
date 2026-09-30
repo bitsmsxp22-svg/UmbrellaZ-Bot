@@ -1,8 +1,10 @@
 import { paths } from './paths';
+import { DEFAULT_FREE_SITES } from './providers/site-list';
 import { readJson, writeJson } from './util';
 
 export type AspectRatio = '3:2' | '2:3' | '16:9' | '1:1' | '4:3';
 export type PromptEngine = 'chatgpt' | 'local';
+export type ImageProvider = 'free-sites' | 'chatgpt';
 export type UpscalerKind = 'realesrgan' | 'sharp';
 export type BrowserChannel = 'chrome' | 'msedge' | 'chromium';
 
@@ -13,6 +15,7 @@ export interface Settings {
   pauseBetweenImagesSec: number;
   pauseBetweenBatchesMin: number;
   simulationMode: boolean;
+  keepAwake: boolean;
 
   /* Pesquisa de mercado */
   niches: string[];
@@ -22,8 +25,11 @@ export interface Settings {
   researchRefreshHours: number;
   researchExtraParams: string;
 
-  /* Prompts e geração (ChatGPT / GPT Image) */
+  /* Prompts (ChatGPT sem login) e geração (GPT Image 2 sem login) */
   promptEngine: PromptEngine;
+  imageProvider: ImageProvider;
+  freeSites: string[];
+  siteCooldownHours: number;
   aspectRatio: AspectRatio;
   chatgptUrl: string;
   useTemporaryChat: boolean;
@@ -70,6 +76,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pauseBetweenImagesSec: 20,
   pauseBetweenBatchesMin: 5,
   simulationMode: false,
+  keepAwake: true,
 
   niches: DEFAULT_NICHES,
   includeSeasonal: true,
@@ -79,6 +86,9 @@ export const DEFAULT_SETTINGS: Settings = {
   researchExtraParams: '',
 
   promptEngine: 'chatgpt',
+  imageProvider: 'free-sites',
+  freeSites: DEFAULT_FREE_SITES,
+  siteCooldownHours: 12,
   aspectRatio: '3:2',
   chatgptUrl: 'https://chatgpt.com/',
   useTemporaryChat: false,
@@ -126,6 +136,12 @@ const url = (value: unknown, fallback: string): string => {
   }
 };
 
+const urlList = (value: unknown, fallback: string[]): string[] => {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/\r?\n/) : fallback;
+  const list = raw.map((v) => url(String(v).trim(), '')).filter(Boolean);
+  return [...new Set(list)].slice(0, 60);
+};
+
 /** Normaliza e valida qualquer objeto parcial vindo do disco ou do formulário. */
 export function normalizeSettings(input: Partial<Record<keyof Settings, unknown>>): Settings {
   const d = DEFAULT_SETTINGS;
@@ -149,6 +165,7 @@ export function normalizeSettings(input: Partial<Record<keyof Settings, unknown>
     pauseBetweenImagesSec: clamp(input.pauseBetweenImagesSec, 0, 3600, d.pauseBetweenImagesSec),
     pauseBetweenBatchesMin: clamp(input.pauseBetweenBatchesMin, 0, 1440, d.pauseBetweenBatchesMin),
     simulationMode: bool(input.simulationMode, d.simulationMode),
+    keepAwake: bool(input.keepAwake, d.keepAwake),
 
     niches: niches.map((n) => String(n).trim()).filter(Boolean).slice(0, 40),
     includeSeasonal: bool(input.includeSeasonal, d.includeSeasonal),
@@ -158,6 +175,9 @@ export function normalizeSettings(input: Partial<Record<keyof Settings, unknown>
     researchExtraParams: str(input.researchExtraParams, d.researchExtraParams),
 
     promptEngine: oneOf(input.promptEngine, ['chatgpt', 'local'] as const, d.promptEngine),
+    imageProvider: oneOf(input.imageProvider, ['free-sites', 'chatgpt'] as const, d.imageProvider),
+    freeSites: urlList(input.freeSites, d.freeSites),
+    siteCooldownHours: clamp(input.siteCooldownHours, 1, 168, d.siteCooldownHours),
     aspectRatio: oneOf(input.aspectRatio, ['3:2', '2:3', '16:9', '1:1', '4:3'] as const, d.aspectRatio),
     chatgptUrl: url(input.chatgptUrl, d.chatgptUrl),
     useTemporaryChat: bool(input.useTemporaryChat, d.useTemporaryChat),

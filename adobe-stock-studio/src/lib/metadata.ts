@@ -26,18 +26,23 @@ export function removeBlockedTerms(text: string): string {
   return text.replace(blockedRegex, '').replace(/\s{2,}/g, ' ').replace(/\s+([,.;:])/g, '$1').trim();
 }
 
+/** Regras do Adobe para o título: até 70 caracteres, sem vírgulas, sem "generative AI". */
+export const TITLE_MAX = 70;
+
 export function sanitizeTitle(title: string): string {
   let t = removeBlockedTerms(String(title ?? ''))
     .replace(/["“”]/g, '')
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/\b(ai[- ]generated|generative ai|stock photo)\b/gi, '')
+    .replace(/\s*[,;]\s*/g, ' ')
     .replace(/\s{2,}/g, ' ')
-    .replace(/^[\s,.;:-]+|[\s,;:-]+$/g, '')
+    .replace(/^[\s.:-]+|[\s:-]+$/g, '')
     .trim();
-  if (t.length > 200) t = t.slice(0, 200).replace(/\s+\S*$/, '');
+  if (t.length > TITLE_MAX) t = t.slice(0, TITLE_MAX + 1).replace(/\s+\S*$/, '').replace(/\s+(with|and|of|in|on|at|for|the|a|an)$/i, '');
   return t ? t[0].toUpperCase() + t.slice(1) : 'Stock image';
 }
 
+/** O Adobe aceita até 50 palavras-chave; usamos no máximo 49 por segurança. */
 export function sanitizeKeywords(keywords: unknown, max = 49): string[] {
   const list = Array.isArray(keywords)
     ? keywords

@@ -64,7 +64,7 @@ const fmtDate = (iso: string) => new Date(iso).toLocaleString('pt-BR');
                         Inspirada na #{e.inspirationRank}: “{e.inspiration}”
                       </div>
                       <details style="margin-top:4px">
-                        <summary class="muted" style="font-size:.75rem;cursor:pointer">Prompt ({e.promptEngine === 'chatgpt' ? 'ChatGPT' : 'local'})</summary>
+                        <summary class="muted" style="font-size:.75rem;cursor:pointer">Prompt ({e.promptEngine === 'chatgpt' ? 'ChatGPT sem login' : 'gerador local'})</summary>
                         <div class="prompt-box">{e.prompt}</div>
                       </details>
                     </td>
@@ -82,6 +82,7 @@ const fmtDate = (iso: string) => new Date(iso).toLocaleString('pt-BR');
                       <div class="fname">{e.filename}</div>
                       <div class="muted" style="font-size:.75rem">
                         {e.width}×{e.height} · {(e.sizeBytes / 1048576).toFixed(1)} MB · {e.upscaler}
+                        {e.generator && <div>Gerada: {e.generator}</div>}
                       </div>
                       {e.csvFile && (
                         <a href={`/api/file/csv/${e.csvFile}`} style="font-size:.75rem">

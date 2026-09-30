@@ -13,8 +13,10 @@ import { ensureDir, paths, resolveOutputDir } from './paths';
 import { developConcepts } from './prompts';
 import { runResearch } from './research';
 import { loadSettings, type Settings } from './settings';
-import { simulatedImage } from './simulate';
-import { makeThumb, upscaleForAdobe } from './upscale';
+import { generateImage } from './image-generation';
+import { installRealEsrgan } from './realesrgan-install';
+import { keepAwake } from './keep-awake';
+import { makeThumb, realEsrganStatus, selfTestRealEsrgan, upscaleForAdobe } from './upscale';
 import { NeedsLoginError, RateLimitError, RefusedError, StopError, errorMessage, sleep, throwIfAborted } from './util';
 
 export type Stage =
@@ -45,7 +47,7 @@ export const STAGE_LABELS: Record<Stage, string> = {
   uploading: 'Enviando ao Adobe Stock',
   cleanup: 'Registrando log e limpando o desktop',
   waiting: 'Aguardando',
-  cooldown: 'Pausa por limite do ChatGPT',
+  cooldown: 'Aguardando limite grátis liberar',
   stopping: 'Parando…',
   login: 'Login necessário',
   error: 'Erro',
@@ -64,6 +66,7 @@ export interface ItemView {
   inspiration: string;
   inspirationRank: number;
   engine: string;
+  generator?: string;
   width?: number;
   height?: number;
   upscaler?: string;
@@ -186,6 +189,7 @@ class ProductionEngine {
         inspiration: i.inspiration,
         inspirationRank: i.inspirationRank,
         engine: i.engine,
+        generator: i.generator,
         width: i.width,
         height: i.height,
         upscaler: i.upscaler,
@@ -217,6 +221,8 @@ class ProductionEngine {
     try {
       let settings = await loadSettings();
       log.info(settings.simulationMode ? 'Produção ligada em MODO SIMULAÇÃO (nada é enviado de verdade).' : 'Produção ligada.');
+      await this.ensureUpscaler(settings, signal);
+      keepAwake(settings.keepAwake && !settings.simulationMode);
 
       while (!signal.aborted) {
         settings = await loadSettings(); // mudanças nas configurações valem a partir do próximo lote
@@ -255,7 +261,22 @@ class ProductionEngine {
         emptyBatches = 0;
 
         const csvPath = await this.writeCsv(batch, ready);
-        await this.upload(batch, ready, csvPath, settings, signal);
+        try {
+          await this.upload(batch, ready, csvPath, settings, signal);
+        } catch (err) {
+          // Sessão do Adobe expirou: a produção NÃO desliga. O lote fica guardado no desktop e o
+          // envio é tentado de novo a cada 10 min até você entrar na conta pelo navegador aberto.
+          if (!(err instanceof NeedsLoginError && err.service === 'adobe')) throw err;
+          this.status.needsLogin = 'adobe';
+          this.status.lastError = err.message;
+          log.error(`${err.message} A produção continua ligada e tenta enviar de novo em 10 min.`);
+          await this.wait(10 * 60_000, 'login', 'Aguardando login no portal do Adobe Stock para enviar o lote…', signal);
+          this.status.needsLogin = null;
+          this.status.lastError = null;
+          continue;
+        }
+        // Reinicia o navegador a cada lote: evita acúmulo de memória em produções de muitas horas.
+        await browser.close();
         batchesDone++;
         this.status.counters.batches++;
         this.viewBatch(batch);
@@ -270,7 +291,7 @@ class ProductionEngine {
         await this.wait(
           settings.simulationMode ? Math.min(pause, 5000) : pause,
           cooldownLeft > 0 ? 'cooldown' : 'waiting',
-          cooldownLeft > 0 ? 'Aguardando o limite do ChatGPT liberar para o próximo lote…' : 'Próximo lote em breve…',
+          cooldownLeft > 0 ? 'Aguardando os limites gratuitos de GPT Image 2 liberarem para o próximo lote…' : 'Próximo lote em breve…',
           signal,
         );
       }
@@ -294,7 +315,30 @@ class ProductionEngine {
       this.status.waitUntil = null;
       // No caso de login pendente o navegador fica aberto para o usuário entrar na conta.
       if (this.status.stage !== 'login') await browser.close();
+      keepAwake(false);
       this.emit();
+    }
+  }
+
+  /**
+   * Garante o Real-ESRGAN (IA de ampliação) antes de produzir: instala sozinho se faltar e faz um
+   * autoteste — assim não se gasta o limite grátis de GPT Image 2 com imagens que não poderiam ser ampliadas.
+   */
+  private async ensureUpscaler(settings: Settings, signal: AbortSignal): Promise<void> {
+    if (settings.upscaler !== 'realesrgan') return;
+    try {
+      if (!realEsrganStatus(settings).available) {
+        this.set('starting', 'Instalando o Real-ESRGAN (IA de ampliação)…');
+        await installRealEsrgan((m) => log.info(m));
+      }
+      this.set('starting', 'Testando o Real-ESRGAN na placa de vídeo…');
+      await selfTestRealEsrgan(settings, signal);
+      log.success(`Real-ESRGAN pronto (${settings.realesrganModel}).`);
+    } catch (err) {
+      if (err instanceof StopError) throw err;
+      const msg = `A IA de ampliação (Real-ESRGAN) não está funcionando: ${errorMessage(err)}`;
+      if (!settings.simulationMode) throw new Error(msg);
+      log.warn(`${msg}. Modo simulação: seguindo com Lanczos só para o teste.`);
     }
   }
 
@@ -315,10 +359,9 @@ class ProductionEngine {
 
       try {
         if (item.status === 'pending' || item.status === 'failed') {
-          this.set('generating', `${label} — gerando no ${settings.simulationMode ? 'simulador' : 'ChatGPT'}…`);
-          const buffer = settings.simulationMode
-            ? await simulatedImage(item.title, settings.aspectRatio)
-            : await (await this.chatClient(settings, signal)).generateImage(item.prompt);
+          this.set('generating', `${label} — gerando com GPT Image 2${settings.simulationMode ? ' (simulação)' : ''}…`);
+          const { buffer, source } = await generateImage(item.prompt, item.title, settings, signal, () => this.chatClient(settings, signal));
+          item.generator = source;
           const meta = await sharp(buffer).metadata();
           const ext = meta.format === 'jpeg' ? 'jpg' : (meta.format ?? 'png');
           item.rawPath = path.join(batch.dir, `${path.parse(item.filename).name}.original.${ext}`);
@@ -331,7 +374,7 @@ class ProductionEngine {
           this.status.counters.generated++;
           await saveBatch(batch);
           this.viewBatch(batch);
-          log.success(`Imagem gerada (${meta.width}×${meta.height}): ${item.title}`);
+          log.success(`Imagem gerada (${meta.width}×${meta.height}) por ${source}: ${item.title}`);
         }
 
         if (item.status === 'generated' && item.rawPath) {
@@ -360,15 +403,15 @@ class ProductionEngine {
             for (const rest of batch.items.slice(i)) {
               if (rest.status === 'pending' || rest.status === 'failed') {
                 rest.status = 'skipped';
-                rest.error = 'adiada por limite do ChatGPT';
+                rest.error = 'adiada: limites gratuitos esgotados';
               }
             }
             await saveBatch(batch);
             this.viewBatch(batch);
-            log.info(`Enviando as ${readyCount} imagens prontas enquanto o limite do ChatGPT não libera (${minutes} min).`);
+            log.info(`Enviando as ${readyCount} imagens prontas enquanto os limites gratuitos não liberam (${minutes} min).`);
             return;
           }
-          await this.wait(minutes * 60_000, 'cooldown', `Limite do ChatGPT atingido. Retomando em ${minutes} min…`, signal);
+          await this.wait(minutes * 60_000, 'cooldown', `Limites gratuitos de GPT Image 2 esgotados por agora. Retomando sozinho em ${minutes} min…`, signal);
           continue;
         }
 
@@ -423,13 +466,21 @@ class ProductionEngine {
       }
       outcome = { confirmed: ready.map((i) => i.filename), missing: [], portalReportedSuccess: true, csvSent: true, submitted: false, notes: ['simulação'] };
     } else {
-      outcome = await uploadBatchToAdobe(
-        ready.map((i) => ({ path: i.finalPath!, filename: i.filename })),
-        csvPath,
-        settings,
-        signal,
-        batch.uploadAttempts > 1,
-      );
+      try {
+        outcome = await uploadBatchToAdobe(
+          ready.map((i) => ({ path: i.finalPath!, filename: i.filename })),
+          csvPath,
+          settings,
+          signal,
+          batch.uploadAttempts > 1,
+        );
+      } catch (err) {
+        if (err instanceof NeedsLoginError) {
+          batch.uploadAttempts--; // falta de login não conta como tentativa de envio
+          await saveBatch(batch);
+        }
+        throw err;
+      }
     }
 
     const accepted = new Set(outcome.confirmed.length ? outcome.confirmed : outcome.portalReportedSuccess ? ready.map((i) => i.filename) : []);
@@ -478,6 +529,7 @@ class ProductionEngine {
         height: item.height ?? 0,
         sizeBytes: item.sizeBytes ?? 0,
         upscaler: item.upscaler ?? '',
+        generator: item.generator ?? '',
         status,
         sentAt,
         deletedFromDesktop: deleted,

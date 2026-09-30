@@ -69,15 +69,23 @@ class BrowserManager {
     return page;
   }
 
-  /** Abre as páginas de login para o usuário entrar manualmente uma única vez. */
+  /**
+   * Abre o navegador do sistema: portal do colaborador do Adobe Stock (o único login necessário,
+   * para enviar as imagens para a SUA conta), ChatGPT sem conta e o primeiro site de GPT Image 2 —
+   * assim você pode aceitar avisos de cookies/termos desses sites uma vez, se aparecerem.
+   */
   async openLoginPages(settings: Settings): Promise<void> {
-    const chat = await this.page(settings, 'chatgpt');
-    await chat.goto(settings.chatgptUrl, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
     const adobe = await this.page(settings, 'adobe');
     await adobe
       .goto(new URL('uploads', settings.adobeContributorUrl).toString(), { waitUntil: 'domcontentloaded' })
       .catch(() => undefined);
-    await chat.bringToFront().catch(() => undefined);
+    const chat = await this.page(settings, 'chatgpt');
+    await chat.goto(settings.chatgptUrl, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+    if (settings.freeSites[0]) {
+      const site = await this.page(settings, 'gpt-image-2');
+      await site.goto(settings.freeSites[0], { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+    }
+    await adobe.bringToFront().catch(() => undefined);
   }
 
   async screenshot(page: Page, label: string): Promise<string | null> {

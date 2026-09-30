@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { ADOBE_CATEGORIES } from './categories';
 import type { ChatGPTWeb } from './chatgpt';
 import { log } from './bus';
-import { normalizeCategory, sanitizeKeywords, sanitizePrompt, sanitizeTitle } from './metadata';
+import { TITLE_MAX, normalizeCategory, sanitizeKeywords, sanitizePrompt, sanitizeTitle } from './metadata';
 import { paths } from './paths';
 import type { Settings } from './settings';
 import { contentTokens, rankWeight, type NicheResearch, type ResearchItem, type ResearchSnapshot } from './trends';
@@ -162,8 +162,8 @@ function localConcept(brief: Brief, usedHashes: Set<string>): ImageConcept {
   }
 
   // Título descritivo: o assunto da referência + o diferencial da composição nova.
-  const suffix = composition.title && !subject.toLowerCase().includes(composition.title) ? `, ${composition.title}` : '';
-  const title = sanitizeTitle(`${subject}${subject.length + suffix.length <= 80 ? suffix : ''}`);
+  const suffix = composition.title && !subject.toLowerCase().includes(composition.title) ? ` ${composition.title}` : '';
+  const title = sanitizeTitle(`${subject}${subject.length + suffix.length <= TITLE_MAX ? suffix : ''}`);
 
   // Palavras-chave relevantes primeiro: assunto → palavras-chave da própria referência → núcleo do nicho.
   const nicheCore = brief.niche.terms.filter((t) => !t.term.includes(' ')).slice(0, 6).map((t) => t.term);
@@ -218,29 +218,43 @@ function chatgptInstruction(briefs: Brief[], settings: Settings): string {
     '- People must be fictional adults or families; show diversity naturally.',
     `- Image format: ${settings.aspectRatio}.`,
     '- "prompt": English, 60-120 words, very specific (subject, action, setting, composition with copy space, lighting, lens, color palette, mood).',
-    '- "title": English, 5-12 words, natural descriptive sentence, max 70 characters, no keyword stuffing.',
+    '- "title": English, 5-12 words, natural descriptive sentence, max 70 characters, NO commas, no keyword stuffing, never the words "AI" or "generative".',
     '- "keywords": 35-45 English keywords, single words or short phrases, most important first (the first 10 matter most), no brands, no "AI".',
     `- "category": Adobe Stock category number (${categories}).`,
     '',
-    `Answer ONLY with a JSON array of ${briefs.length} objects, in the same order as the briefs:`,
-    '[{"brief":1,"prompt":"...","title":"...","keywords":["..."],"category":3}]',
+    `Answer ONLY with a JSON array of ${briefs.length} objects, in the same order as the briefs.`,
+    'Each object has the keys: brief (number), prompt (string), title (string), keywords (array of strings), category (number).',
     'No explanations, no markdown.',
   ].join('\n');
 }
 
+/** Posição do "]" que fecha o "[" em `start` (respeita strings JSON), ou -1. */
+function closingBracket(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === '\\') i++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === '[') depth++;
+    else if (c === ']' && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/** Extrai da resposta (ou do texto inteiro da página) o último array JSON de objetos válido. */
 export function extractJsonArray(text: string): unknown[] | null {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidates = [fenced?.[1], text];
-  for (const c of candidates) {
-    if (!c) continue;
-    const start = c.indexOf('[');
-    const end = c.lastIndexOf(']');
-    if (start < 0 || end <= start) continue;
+  const starts = [...text.matchAll(/\[\s*\{/g)].map((m) => m.index ?? 0).reverse();
+  for (const start of starts) {
+    const end = closingBracket(text, start);
+    if (end < 0) continue;
     try {
-      const parsed = JSON.parse(c.slice(start, end + 1));
-      if (Array.isArray(parsed)) return parsed;
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      if (Array.isArray(parsed) && parsed.length && typeof parsed[0] === 'object') return parsed;
     } catch {
-      /* tenta o próximo */
+      /* tenta o anterior */
     }
   }
   return null;
@@ -287,13 +301,13 @@ export async function developConcepts(
 
   if (settings.promptEngine === 'chatgpt' && getChat && briefs.length) {
     try {
-      log.info(`Pedindo ao ChatGPT ${briefs.length} prompts com base no ranking das mais vendidas…`);
+      log.info(`Pedindo ao ChatGPT (sem login) ${briefs.length} prompts com base no ranking das mais vendidas…`);
       concepts = await chatgptConcepts(briefs, settings, await getChat());
       const ok = concepts.filter(Boolean).length;
       log.success(`ChatGPT criou ${ok} de ${briefs.length} prompts.`);
     } catch (err) {
-      if (err instanceof Error && ['StopError', 'NeedsLoginError', 'RateLimitError'].includes(err.name)) throw err;
-      log.warn(`Não consegui usar o ChatGPT para os prompts (${errorMessage(err)}). Usando o gerador local.`);
+      if (err instanceof Error && err.name === 'StopError') throw err;
+      log.warn(`Não consegui usar o ChatGPT (sem login) para os prompts (${errorMessage(err)}). Usando o gerador local neste lote.`);
     }
   }
 

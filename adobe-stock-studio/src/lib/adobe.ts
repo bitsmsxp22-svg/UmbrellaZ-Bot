@@ -63,7 +63,7 @@ export class AdobeContributorWeb {
     const shot = await browser.screenshot(this.page, 'adobe-login');
     throw new NeedsLoginError(
       'adobe',
-      `O portal do colaborador do Adobe Stock não está logado. Clique em "Abrir navegador para login", entre na sua conta de colaborador e ligue a produção de novo.${shot ? ` Captura: ${shot}` : ''}`,
+      `O portal do colaborador do Adobe Stock não está logado. Clique em "Abrir navegador", entre na sua conta de colaborador nessa janela (o login fica salvo).${shot ? ` Captura: ${shot}` : ''}`,
     );
   }
 
@@ -205,6 +205,10 @@ export class AdobeContributorWeb {
       await this.click(CONTRIBUTOR_TEXT.submit, 5000, dialog);
     }
     await sleep(5000, this.signal);
+    const text = await this.bodyText();
+    if (CONTRIBUTOR_TEXT.submitLimit.test(text)) {
+      throw new Error('limite semanal de envios para revisão do Adobe atingido (ele libera sozinho quando a fila é revisada)');
+    }
     return true;
   }
 
@@ -243,7 +247,13 @@ export async function uploadBatchToAdobe(
     if (already.confirmed.length) log.info(`${already.confirmed.length} imagem(ns) deste lote já estavam no portal — não serão reenviadas.`);
     toSend = files.filter((f) => !already.confirmed.includes(f.filename));
   }
-  out.portalReportedSuccess = toSend.length === 0 || (await portal.uploadImages(toSend.map((f) => f.path)));
+  // O portal costuma travar com muitos arquivos de uma vez: envia em grupos de até 20.
+  out.portalReportedSuccess = true;
+  for (let i = 0; i < toSend.length; i += 20) {
+    const ok = await portal.uploadImages(toSend.slice(i, i + 20).map((f) => f.path));
+    out.portalReportedSuccess &&= ok;
+    if (i + 20 < toSend.length) await portal.gotoUploads();
+  }
   const check = await portal.confirm(files.map((f) => f.filename));
   out.confirmed = check.confirmed;
   out.missing = check.missing;

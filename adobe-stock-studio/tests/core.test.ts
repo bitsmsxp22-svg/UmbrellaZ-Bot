@@ -36,10 +36,13 @@ test('palavras-chave: remove marcas, ruído e duplicadas; máximo 49', () => {
   assert.equal(kws.length, 49);
 });
 
-test('título e prompt sem marcas nem "AI generated"', () => {
+test('título segue o Adobe: sem marcas, sem vírgulas, sem "AI generated", até 70 caracteres', () => {
   assert.equal(sanitizeTitle('"business team with Apple laptop" AI generated'), 'Business team with laptop');
+  assert.equal(sanitizeTitle('Coffee cup, top view, copy space'), 'Coffee cup top view copy space');
   assert.ok(!/nike/i.test(sanitizePrompt('runner wearing Nike shoes')));
-  assert.ok(sanitizeTitle('x '.repeat(200)).length <= 200);
+  const long = sanitizeTitle('Diverse group of young business people collaborating around a bright wooden desk in a modern office');
+  assert.ok(long.length <= 70, long);
+  assert.ok(!/\s(with|and|of|in|a)$/i.test(long), long);
 });
 
 test('categoria: nicho pesa e valores inválidos são reclassificados', () => {
@@ -65,11 +68,23 @@ test('ranking de termos: 1º lugar pesa mais e bigramas precisam se repetir', ()
 });
 
 test('extrai JSON da resposta do ChatGPT mesmo com texto em volta', () => {
-  const text = 'json\nCopy code\n```json\n[{"brief":1,"prompt":"p","title":"t","keywords":["a"],"category":3}]\n```\nPronto!';
+  const text = 'json\nCopy code\n```json\n[{"brief":1,"prompt":"p [x]","title":"t","keywords":["a"],"category":3}]\n```\nPronto!';
   const arr = extractJsonArray(text);
   assert.ok(arr);
   assert.equal((arr![0] as { brief: number }).brief, 1);
   assert.equal(extractJsonArray('sem json aqui'), null);
+  // Página inteira de um chat: pega o último array válido (a resposta), ignorando texto com colchetes.
+  const page = 'Você: crie [3] prompts\nAssistente:\n[{"brief":1,"title":"a"},{"brief":2,"title":"b"}] fim [nota]';
+  assert.equal(extractJsonArray(page)?.length, 2);
+});
+
+test('nome de arquivo do lote tem no máximo 30 caracteres (regra do CSV do Adobe) e é único', async () => {
+  const { createBatch } = await import('../src/lib/batch');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'batch-'));
+  const concept = { prompt: 'p', title: 'Extraordinarily long business teamwork title', keywords: ['a'], category: 3, niche: 'n', inspiration: 'i', inspirationRank: 1, engine: 'local' as const };
+  const batch = await createBatch(dir, [concept, concept, concept]);
+  for (const item of batch.items) assert.ok(item.filename.length <= 30, item.filename);
+  assert.equal(new Set(batch.items.map((i) => i.filename)).size, 3);
 });
 
 test('datas sazonais: em 30/09/2026 aparecem Halloween e Thanksgiving (26/11)', () => {

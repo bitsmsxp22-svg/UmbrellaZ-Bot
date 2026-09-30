@@ -17,6 +17,7 @@ export const paths = {
   state: path.join(DATA, 'state'),
   research: path.join(DATA, 'state', 'pesquisa.json'),
   usedPrompts: path.join(DATA, 'state', 'prompts-usados.json'),
+  siteStates: path.join(DATA, 'state', 'sites-gpt-image-2.json'),
   browserProfile: path.join(DATA, 'browser-profile'),
   screenshots: path.join(DATA, 'screenshots'),
   tools: path.join(ROOT, 'tools'),
