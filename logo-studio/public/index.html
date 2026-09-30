@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Criador de Logos com IA</title>
+  <meta name="description" content="Descreva sua marca e receba 5 opções de logo em SVG, prontas para usar.">
+  <meta name="theme-color" content="#0f1220">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <span class="brand"><img src="favicon.svg" alt="" width="28" height="28"> Logo Studio</span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <h1>Crie sua logo em segundos</h1>
+      <p>Descreva sua marca e receba <strong>5 opções diferentes</strong> em <strong>SVG vetorial</strong>, prontas para site, redes sociais e impressão.</p>
+    </section>
+
+    <form id="form" class="card form" novalidate>
+      <label for="prompt" class="label">O que você quer na sua logo?</label>
+      <textarea id="prompt" name="prompt" rows="4" maxlength="1200" required
+        placeholder='Ex.: Logo para uma cafeteria chamada "Grão Nobre", estilo moderno e acolhedor, com um grão de café, cores marrom e dourado.'></textarea>
+      <div class="row between small muted"><span>Inclua o nome da marca, o ramo, estilo e cores.</span><span id="count">0/1200</span></div>
+
+      <label class="label" for="images">Imagens de referência <span class="muted">(opcional)</span></label>
+      <div id="drop" class="drop" tabindex="0" role="button" aria-describedby="drop-help">
+        <input id="images" name="images" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+        <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path fill="currentColor" d="M12 3 7 8h3v6h4V8h3l-5-5ZM5 17v2h14v-2H5Z"/></svg>
+        <span><strong>Clique</strong> ou arraste imagens aqui</span>
+        <span id="drop-help" class="small muted">Logo atual, rascunho ou inspiração · até 3 imagens · PNG, JPG ou WebP</span>
+      </div>
+      <ul id="thumbs" class="thumbs" aria-live="polite"></ul>
+
+      <label class="switch">
+        <input id="transparent" type="checkbox" checked>
+        <span class="track" aria-hidden="true"></span>
+        Fundo transparente
+      </label>
+
+      <button id="submit" class="btn primary" type="submit">
+        <span class="btn-label">Gerar 5 logos</span>
+      </button>
+      <p id="error" class="error" role="alert" hidden></p>
+    </form>
+
+    <section id="results" class="results" hidden aria-live="polite">
+      <div class="row between results-head">
+        <h2>Suas logos</h2>
+        <p id="status" class="muted small"></p>
+      </div>
+      <div class="progress" aria-hidden="true"><span id="bar"></span></div>
+      <div id="grid" class="grid"></div>
+    </section>
+  </main>
+
+  <footer class="foot wrap small muted">
+    As logos são geradas por inteligência artificial. Verifique a disponibilidade da marca antes do registro.
+  </footer>
+
+  <template id="card-tpl">
+    <article class="card sample">
+      <div class="preview checker">
+        <div class="skeleton"><span class="spinner"></span><span class="small muted">Criando…</span></div>
+        <img alt="" hidden>
+      </div>
+      <div class="meta">
+        <div class="row between">
+          <h3 class="title">Opção</h3>
+          <div class="swatches"></div>
+        </div>
+        <p class="desc small muted"></p>
+        <div class="bgs" role="group" aria-label="Fundo da prévia">
+          <button type="button" data-bg="checker" class="on" title="Transparente"></button>
+          <button type="button" data-bg="light" title="Claro"></button>
+          <button type="button" data-bg="dark" title="Escuro"></button>
+        </div>
+        <div class="actions">
+          <a class="btn small-btn dl-svg" download aria-disabled="true">Baixar SVG</a>
+          <a class="btn ghost small-btn dl-png" download aria-disabled="true">PNG</a>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
