@@ -23,6 +23,11 @@
   box-sizing: border-box;
 }
 
+/* O atributo hidden sempre esconde, mesmo em elementos com display próprio (.badge, .btn…). */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -351,10 +356,6 @@ code,
   background: #f851491a;
   color: #ffb4ae;
   font-size: 0.9rem;
-}
-
-.alert[hidden] {
-  display: none;
 }
 
 .alert .btn {

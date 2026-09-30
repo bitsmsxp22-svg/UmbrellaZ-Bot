@@ -88,7 +88,7 @@ const steps = ['Pesquisa', 'Prompts', 'Geração', 'Ampliação IA', 'CSV', 'Env
         <span class="hint" id="research-date"></span>
       </div>
       <div id="research-progress" class="muted" hidden></div>
-      <select class="select" id="niche-select"></select>
+      <select class="select" id="niche-select" hidden></select>
       <div class="muted" id="niche-meta" style="font-size:.78rem;margin:8px 0 12px"></div>
       <h2 style="font-size:.85rem;margin-bottom:8px">Termos mais fortes</h2>
       <div class="terms" id="terms"><div class="empty">Ainda sem pesquisa. Ela roda automaticamente ao ligar a produção.</div></div>
@@ -218,6 +218,7 @@ const steps = ['Pesquisa', 'Prompts', 'Geração', 'Ampliação IA', 'CSV', 'Env
     function renderResearch(r: any) {
       research = r;
       const select = $<HTMLSelectElement>('niche-select');
+      select.hidden = false;
       const current = select.value;
       select.innerHTML =
         `<option value="__all">Todos os nichos (geral)</option>` +
