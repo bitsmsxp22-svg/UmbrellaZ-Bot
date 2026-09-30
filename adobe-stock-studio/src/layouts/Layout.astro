@@ -1,0 +1,57 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  active: 'painel' | 'historico' | 'config';
+}
+const { title, active } = Astro.props;
+const nav = [
+  { id: 'painel', href: '/', label: 'Painel' },
+  { id: 'historico', href: '/historico', label: 'Histórico de envios' },
+  { id: 'config', href: '/configuracoes', label: 'Configurações' },
+];
+---
+
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title} · Stock Studio</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <span>Stock Studio <small>produção automática para Adobe Stock</small></span>
+      </a>
+      <nav>
+        {nav.map((n) => <a href={n.href} class:list={[{ active: n.id === active }]}>{n.label}</a>)}
+      </nav>
+      <div class="pill tone-muted" id="global-pill"><span class="dot"></span><span class="pill-text">Conectando…</span></div>
+    </header>
+    <main class="container">
+      <slot />
+    </main>
+    <footer class="footer">Roda só no seu computador · sem chaves de API · login feito uma vez no navegador do sistema</footer>
+    <script>
+      import { live, STAGE_TONE } from '../scripts/live';
+      const pill = document.getElementById('global-pill')!;
+      const text = pill.querySelector('.pill-text')!;
+      live({
+        status(s) {
+          pill.className = `pill tone-${STAGE_TONE[s.stage] ?? 'muted'}`;
+          text.textContent = s.running ? `${s.stageLabel}${s.simulation ? ' · simulação' : ''}` : s.stageLabel;
+        },
+        connection(ok) {
+          if (!ok) {
+            pill.className = 'pill tone-error';
+            text.textContent = 'Servidor desconectado';
+          }
+        },
+      });
+    </script>
+  </body>
+</html>

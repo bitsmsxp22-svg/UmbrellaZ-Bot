@@ -1,0 +1,34 @@
+{
+  "name": "adobe-stock-studio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sistema local em Astro que pesquisa as imagens mais vendidas do Adobe Stock, cria prompts, gera imagens no ChatGPT (GPT Image), amplia com Real-ESRGAN, monta o CSV e envia tudo para o Adobe Stock automaticamente.",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "start": "node ./dist/server/entry.mjs",
+    "preview": "astro preview",
+    "check": "astro check",
+    "setup:upscaler": "node ./scripts/setup-upscaler.mjs",
+    "setup:browser": "playwright install chromium",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "@astrojs/node": "^11.1.6",
+    "adm-zip": "^0.5.18",
+    "astro": "^7.3.5",
+    "playwright": "^1.63.0",
+    "sharp": "^0.35.5"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@types/adm-zip": "^0.5.8",
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
+  }
+}

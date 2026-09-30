@@ -1,0 +1,300 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { nicheTargets } from '../lib/research';
+import { detectDesktop, resolveOutputDir } from '../lib/paths';
+import { DEFAULT_SELECTORS } from '../lib/selectors';
+import { loadSettings } from '../lib/settings';
+import { realEsrganStatus } from '../lib/upscale';
+
+const s = await loadSettings();
+const outputDir = resolveOutputDir(s.outputDir);
+const upscaler = realEsrganStatus(s);
+const seasonal = nicheTargets(s).filter((t) => t.seasonal);
+const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['chatgpt.composer'] }, null, 2);
+---
+
+<Layout title="Configurações" active="config">
+  <div class="panel-head" style="margin-bottom:16px">
+    <div>
+      <h1 style="font-size:1.4rem">Configurações</h1>
+      <div class="muted">As mudanças valem a partir do próximo lote. Tudo fica salvo em <code>data/settings.json</code>.</div>
+    </div>
+  </div>
+
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head"><h2>1 · Login (feito uma única vez)</h2></div>
+    <p class="muted" style="margin-top:0">
+      O sistema não usa chaves de API nem guarda senhas. Ele controla um navegador com perfil próprio
+      (<code>data/browser-profile</code>). Abra o navegador, entre no <b>ChatGPT</b> e no <b>portal do colaborador do Adobe Stock</b>,
+      e depois feche. O login fica salvo.
+    </p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-start" id="btn-open">Abrir navegador para login</button>
+      <button class="btn" id="btn-close">Fechar navegador</button>
+    </div>
+  </section>
+
+  <form id="form">
+    <div class="form-grid">
+      <section class="panel">
+        <div class="panel-head"><h2>2 · Produção</h2></div>
+        <div class="row">
+          <div class="field">
+            <label for="imagesPerBatch">Imagens por lote</label>
+            <input type="number" id="imagesPerBatch" name="imagesPerBatch" min="1" max="50" value={s.imagesPerBatch} />
+            <span class="help">Cada lote vira uma pasta, um CSV e um envio.</span>
+          </div>
+          <div class="field">
+            <label for="maxBatchesPerSession">Máximo de lotes por sessão</label>
+            <input type="number" id="maxBatchesPerSession" name="maxBatchesPerSession" min="0" max="1000" value={s.maxBatchesPerSession} />
+            <span class="help">0 = produz sem parar até você apertar "Parar".</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="pauseBetweenImagesSec">Pausa entre imagens (segundos)</label>
+            <input type="number" id="pauseBetweenImagesSec" name="pauseBetweenImagesSec" min="0" max="3600" value={s.pauseBetweenImagesSec} />
+          </div>
+          <div class="field">
+            <label for="pauseBetweenBatchesMin">Pausa entre lotes (minutos)</label>
+            <input type="number" id="pauseBetweenBatchesMin" name="pauseBetweenBatchesMin" min="0" max="1440" value={s.pauseBetweenBatchesMin} />
+          </div>
+        </div>
+        <div class="field">
+          <label for="outputDir">Pasta de produção</label>
+          <input type="text" id="outputDir" name="outputDir" value={s.outputDir} placeholder={outputDir} />
+          <span class="help">Vazio = <code>{outputDir}</code> (Área de Trabalho detectada: <code>{detectDesktop()}</code>). As imagens são apagadas daqui após o envio.</span>
+        </div>
+        <div class="check">
+          <input type="checkbox" id="deleteAfterUpload" name="deleteAfterUpload" checked={s.deleteAfterUpload} />
+          <label for="deleteAfterUpload">Apagar as imagens do desktop depois do envio<span class="help">O log, as miniaturas e o CSV continuam salvos em <code>data/</code>.</span></label>
+        </div>
+        <div class="check">
+          <input type="checkbox" id="simulationMode" name="simulationMode" checked={s.simulationMode} />
+          <label for="simulationMode">Modo simulação (teste)<span class="help">Roda o fluxo inteiro sem ChatGPT e sem enviar ao Adobe: imagens abstratas locais, ampliação, CSV, log e limpeza.</span></label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>3 · Pesquisa das mais vendidas</h2></div>
+        <div class="field">
+          <label for="niches">Nichos pesquisados (um por linha, em inglês)</label>
+          <textarea id="niches" name="niches">{s.niches.join('\n')}</textarea>
+          <span class="help">Para cada nicho o sistema abre a busca do Adobe Stock ordenada por <b>mais baixadas</b> e analisa títulos e palavras-chave das campeãs.</span>
+        </div>
+        <div class="check">
+          <input type="checkbox" id="includeSeasonal" name="includeSeasonal" checked={s.includeSeasonal} />
+          <label for="includeSeasonal">Incluir datas sazonais que estão chegando
+            <span class="help">
+              {seasonal.length ? `Agora: ${seasonal.map((t) => t.seasonalLabel).join(' · ')}` : 'Nenhuma data nos próximos 100 dias.'}
+            </span>
+          </label>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="researchResultsPerQuery">Resultados analisados por nicho</label>
+            <input type="number" id="researchResultsPerQuery" name="researchResultsPerQuery" min="10" max="100" value={s.researchResultsPerQuery} />
+          </div>
+          <div class="field">
+            <label for="researchDeepItems">Campeãs abertas para ler palavras-chave</label>
+            <input type="number" id="researchDeepItems" name="researchDeepItems" min="0" max="10" value={s.researchDeepItems} />
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="researchRefreshHours">Refazer a pesquisa a cada (horas)</label>
+            <input type="number" id="researchRefreshHours" name="researchRefreshHours" min="0" max="720" value={s.researchRefreshHours} />
+          </div>
+          <div class="field">
+            <label for="researchExtraParams">Filtros extras da busca</label>
+            <input type="text" id="researchExtraParams" name="researchExtraParams" value={s.researchExtraParams} placeholder="ex.: filters[orientation]=horizontal" />
+          </div>
+        </div>
+        <button type="button" class="btn" id="btn-research">Atualizar pesquisa agora</button>
+        <div class="status-line" id="research-status"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>4 · Prompts e geração (ChatGPT · GPT Image)</h2></div>
+        <div class="row">
+          <div class="field">
+            <label for="promptEngine">Quem escreve os prompts</label>
+            <select id="promptEngine" name="promptEngine">
+              <option value="chatgpt" selected={s.promptEngine === 'chatgpt'}>ChatGPT (recomendado)</option>
+              <option value="local" selected={s.promptEngine === 'local'}>Gerador local</option>
+            </select>
+            <span class="help">O ChatGPT recebe o ranking e cria prompt, título, palavras-chave e categoria. Se falhar, o gerador local assume.</span>
+          </div>
+          <div class="field">
+            <label for="aspectRatio">Formato da imagem</label>
+            <select id="aspectRatio" name="aspectRatio">
+              {['3:2', '16:9', '4:3', '1:1', '2:3'].map((r) => <option value={r} selected={s.aspectRatio === r}>{r}</option>)}
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="chatgptUrl">Endereço do ChatGPT</label>
+          <input type="url" id="chatgptUrl" name="chatgptUrl" value={s.chatgptUrl} />
+          <span class="help">Para fixar um GPT/modelo específico, cole aqui o link dele.</span>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="imageTimeoutMin">Tempo máximo por imagem (min)</label>
+            <input type="number" id="imageTimeoutMin" name="imageTimeoutMin" min="1" max="30" value={s.imageTimeoutMin} />
+          </div>
+          <div class="field">
+            <label for="rateLimitCooldownMin">Pausa ao atingir limite (min)</label>
+            <input type="number" id="rateLimitCooldownMin" name="rateLimitCooldownMin" min="1" max="1440" value={s.rateLimitCooldownMin} />
+            <span class="help">Usada quando o ChatGPT não informa o tempo de espera.</span>
+          </div>
+        </div>
+        <div class="check">
+          <input type="checkbox" id="useTemporaryChat" name="useTemporaryChat" checked={s.useTemporaryChat} />
+          <label for="useTemporaryChat">Usar chat temporário<span class="help">Não enche o seu histórico do ChatGPT com as conversas de produção.</span></label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>5 · Ampliação com IA (Real-ESRGAN)</h2></div>
+        <div class="status-line" id="upscaler-status" style="margin:0 0 12px">
+          <span class={upscaler.available ? 'badge badge-ok' : 'badge badge-wait'}>{upscaler.available ? 'Instalado' : 'Não instalado'}</span>
+          {upscaler.message}
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="upscaler">Método</label>
+            <select id="upscaler" name="upscaler">
+              <option value="realesrgan" selected={s.upscaler === 'realesrgan'}>Real-ESRGAN x4 (IA, recomendado)</option>
+              <option value="sharp" selected={s.upscaler === 'sharp'}>Somente Lanczos (sem IA)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="realesrganModel">Modelo</label>
+            <select id="realesrganModel" name="realesrganModel">
+              {
+                Array.from(new Set(['realesrgan-x4plus', 'realesrnet-x4plus', 'realesrgan-x4plus-anime', ...upscaler.models])).map((m) => (
+                  <option value={m} selected={s.realesrganModel === m}>{m}</option>
+                ))
+              }
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="realesrganPath">Caminho do executável (opcional)</label>
+          <input type="text" id="realesrganPath" name="realesrganPath" value={s.realesrganPath} placeholder="vazio = tools/realesrgan (npm run setup:upscaler)" />
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="targetLongSide">Lado maior final (px)</label>
+            <input type="number" id="targetLongSide" name="targetLongSide" min="2500" max="10000" value={s.targetLongSide} />
+            <span class="help">6000 px em 3:2 = 6000×4000 (24 MP). O Adobe exige no mínimo 4 MP.</span>
+          </div>
+          <div class="field">
+            <label for="jpegQuality">Qualidade JPEG</label>
+            <input type="number" id="jpegQuality" name="jpegQuality" min="70" max="100" value={s.jpegQuality} />
+          </div>
+        </div>
+        <button type="button" class="btn" id="btn-upscaler">Verificar Real-ESRGAN</button>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>6 · Envio ao Adobe Stock</h2></div>
+        <div class="field">
+          <label for="adobeContributorUrl">Portal do colaborador</label>
+          <input type="url" id="adobeContributorUrl" name="adobeContributorUrl" value={s.adobeContributorUrl} />
+        </div>
+        <div class="check">
+          <input type="checkbox" id="autoSubmit" name="autoSubmit" checked={s.autoSubmit} />
+          <label for="autoSubmit">Enviar para revisão automaticamente
+            <span class="help">Marca "Criado com ferramentas de IA generativa" e "Pessoas e propriedades fictícias" (exigências do Adobe para conteúdo de IA) e clica em enviar. Desmarcado, os arquivos ficam na aba "Novos" com os metadados do CSV.</span>
+          </label>
+        </div>
+        <div class="field">
+          <label for="csvApplyWaitSec">Espera após o CSV (segundos)</label>
+          <input type="number" id="csvApplyWaitSec" name="csvApplyWaitSec" min="0" max="1800" value={s.csvApplyWaitSec} />
+          <span class="help">Tempo para o portal aplicar títulos e palavras-chave antes do envio para revisão.</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>7 · Navegador e avançado</h2></div>
+        <div class="row">
+          <div class="field">
+            <label for="browserChannel">Navegador</label>
+            <select id="browserChannel" name="browserChannel">
+              <option value="chrome" selected={s.browserChannel === 'chrome'}>Google Chrome instalado</option>
+              <option value="msedge" selected={s.browserChannel === 'msedge'}>Microsoft Edge instalado</option>
+              <option value="chromium" selected={s.browserChannel === 'chromium'}>Chromium do Playwright</option>
+            </select>
+          </div>
+          <div class="check" style="align-self:end">
+            <input type="checkbox" id="headless" name="headless" checked={s.headless} />
+            <label for="headless">Navegador invisível<span class="help">Não recomendado: sites de login costumam bloquear.</span></label>
+          </div>
+        </div>
+        <div class="field">
+          <label for="browserExecutablePath">Caminho do executável do navegador (opcional)</label>
+          <input type="text" id="browserExecutablePath" name="browserExecutablePath" value={s.browserExecutablePath} placeholder="vazio = usa a opção acima" />
+          <span class="help">Para usar outro navegador baseado em Chromium (Brave, Chrome portátil…).</span>
+        </div>
+        <div class="field">
+          <label for="selectorOverrides">Seletores avançados (JSON)</label>
+          <textarea id="selectorOverrides" name="selectorOverrides" placeholder={selectorExample}>{Object.keys(s.selectorOverrides).length ? JSON.stringify(s.selectorOverrides, null, 2) : ''}</textarea>
+          <span class="help">Use só se o ChatGPT ou o Adobe mudarem o layout. Chaves disponíveis: {Object.keys(DEFAULT_SELECTORS).join(', ')}.</span>
+        </div>
+      </section>
+    </div>
+
+    <div class="actions-bar">
+      <a class="btn btn-ghost" href="/">Voltar ao painel</a>
+      <button type="submit" class="btn btn-start">Salvar configurações</button>
+    </div>
+  </form>
+
+  <script>
+    import { post, toast } from '../scripts/live';
+
+    const form = document.getElementById('form') as HTMLFormElement;
+    const NUMBER_FIELDS = new Set([
+      'imagesPerBatch', 'maxBatchesPerSession', 'pauseBetweenImagesSec', 'pauseBetweenBatchesMin', 'researchResultsPerQuery',
+      'researchDeepItems', 'researchRefreshHours', 'imageTimeoutMin', 'rateLimitCooldownMin', 'targetLongSide', 'jpegQuality', 'csvApplyWaitSec',
+    ]);
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data: Record<string, unknown> = {};
+      for (const el of Array.from(form.elements) as HTMLInputElement[]) {
+        if (!el.name) continue;
+        if (el.type === 'checkbox') data[el.name] = el.checked;
+        else if (NUMBER_FIELDS.has(el.name)) data[el.name] = Number(el.value);
+        else data[el.name] = el.value;
+      }
+      data.niches = String(data.niches ?? '').split('\n').map((n) => n.trim()).filter(Boolean);
+      const r = await post('/api/settings', data);
+      toast(r.ok ? 'Configurações salvas.' : r.message, r.ok ? 'ok' : 'error');
+    });
+
+    document.getElementById('btn-open')!.addEventListener('click', async () => {
+      const r = await post('/api/browser/open');
+      toast(r.message, r.ok ? 'ok' : 'error');
+    });
+    document.getElementById('btn-close')!.addEventListener('click', async () => {
+      const r = await post('/api/browser/close');
+      toast(r.message, r.ok ? 'ok' : 'error');
+    });
+    document.getElementById('btn-upscaler')!.addEventListener('click', async () => {
+      const r = await (await fetch('/api/upscaler')).json();
+      toast(r.message, r.available ? 'ok' : 'error');
+    });
+    document.getElementById('btn-research')!.addEventListener('click', async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const line = document.getElementById('research-status')!;
+      btn.disabled = true;
+      line.textContent = 'Pesquisando… (acompanhe no log do painel)';
+      const r = await post('/api/research');
+      btn.disabled = false;
+      line.textContent = r.ok ? `Pesquisa concluída: ${r.research.niches.length} nichos.` : r.message;
+      toast(r.ok ? 'Pesquisa atualizada.' : r.message, r.ok ? 'ok' : 'error');
+    });
+  </script>
+</Layout>

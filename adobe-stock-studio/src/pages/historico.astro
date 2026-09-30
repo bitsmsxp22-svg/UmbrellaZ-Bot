@@ -1,0 +1,124 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { historySummary, readHistory } from '../lib/history';
+
+const entries = readHistory();
+const summary = historySummary(entries);
+const STATUS: Record<string, [string, string]> = {
+  enviado: ['Enviado', 'badge badge-run'],
+  enviado_e_submetido: ['Enviado para revisão', 'badge badge-ok'],
+  simulado: ['Simulação', 'badge badge-sim'],
+};
+const fmtDate = (iso: string) => new Date(iso).toLocaleString('pt-BR');
+---
+
+<Layout title="Histórico de envios" active="historico">
+  <div class="panel-head" style="margin-bottom:16px">
+    <div>
+      <h1 style="font-size:1.4rem">Histórico de envios</h1>
+      <div class="muted">Tudo o que foi enviado ao Adobe Stock, com título, palavras-chave, prompt e o CSV de cada lote. Salvo em <code>data/logs/envios.jsonl</code>.</div>
+    </div>
+    <a class="btn" href="/api/history?format=csv">Baixar log (CSV)</a>
+  </div>
+
+  <section class="stats">
+    <div class="stat"><div class="label">Imagens enviadas</div><div class="value">{summary.total}</div></div>
+    <div class="stat"><div class="label">Enviadas hoje</div><div class="value">{summary.today}</div></div>
+    <div class="stat"><div class="label">Enviadas para revisão</div><div class="value">{summary.submitted}</div></div>
+    <div class="stat"><div class="label">Lotes</div><div class="value">{summary.batches}</div></div>
+    <div class="stat"><div class="label">Simulações</div><div class="value">{summary.simulated}</div></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <input class="search" id="search" type="search" placeholder="Filtrar por título, palavra-chave, nicho ou arquivo…" />
+      <span class="hint" id="count">{entries.length} registro(s)</span>
+    </div>
+    {
+      entries.length === 0 ? (
+        <div class="empty">Nada enviado ainda. Assim que um lote for enviado ele aparece aqui.</div>
+      ) : (
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                <th>Imagem</th>
+                <th>Palavras-chave</th>
+                <th>Categoria / nicho</th>
+                <th>Arquivo</th>
+                <th>Status</th>
+                <th>Enviado em</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => {
+                const [label, cls] = STATUS[e.status] ?? [e.status, 'badge'];
+                const haystack = [e.title, e.filename, e.niche, e.keywords.join(' '), e.batchId].join(' ').toLowerCase();
+                return (
+                  <tr data-search={haystack}>
+                    <td>{e.thumb ? <img class="tn" src={`/api/file/thumb/${e.thumb}`} alt="" loading="lazy" /> : <div class="tn" />}</td>
+                    <td style="min-width:240px">
+                      <b>{e.title}</b>
+                      <div class="muted" style="font-size:.75rem;margin-top:4px" title={e.prompt}>
+                        Inspirada na #{e.inspirationRank}: “{e.inspiration}”
+                      </div>
+                      <details style="margin-top:4px">
+                        <summary class="muted" style="font-size:.75rem;cursor:pointer">Prompt ({e.promptEngine === 'chatgpt' ? 'ChatGPT' : 'local'})</summary>
+                        <div class="prompt-box">{e.prompt}</div>
+                      </details>
+                    </td>
+                    <td style="min-width:220px">
+                      <div class="chips" style="margin:0">
+                        {e.keywords.slice(0, 10).map((k) => <span class="chip">{k}</span>)}
+                        {e.keywords.length > 10 && <span class="chip" title={e.keywords.slice(10).join(', ')}>+{e.keywords.length - 10}</span>}
+                      </div>
+                    </td>
+                    <td>
+                      {e.categoryName}
+                      <div class="muted" style="font-size:.75rem">{e.niche}</div>
+                    </td>
+                    <td>
+                      <div class="fname">{e.filename}</div>
+                      <div class="muted" style="font-size:.75rem">
+                        {e.width}×{e.height} · {(e.sizeBytes / 1048576).toFixed(1)} MB · {e.upscaler}
+                      </div>
+                      {e.csvFile && (
+                        <a href={`/api/file/csv/${e.csvFile}`} style="font-size:.75rem">
+                          CSV do lote
+                        </a>
+                      )}
+                    </td>
+                    <td>
+                      <span class={cls}>{label}</span>
+                      <div class="muted" style="font-size:.72rem;margin-top:4px">{e.deletedFromDesktop ? 'Apagada do desktop' : 'Mantida no desktop'}</div>
+                    </td>
+                    <td class="muted" style="white-space:nowrap">
+                      {fmtDate(e.sentAt)}
+                      <div style="font-size:.72rem">{e.batchId}</div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )
+    }
+  </section>
+
+  <script>
+    const input = document.getElementById('search') as HTMLInputElement;
+    const count = document.getElementById('count')!;
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      let shown = 0;
+      document.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach((tr) => {
+        const match = !q || (tr.dataset.search ?? '').includes(q);
+        tr.hidden = !match;
+        if (match) shown++;
+      });
+      count.textContent = `${shown} registro(s)`;
+    });
+  </script>
+</Layout>

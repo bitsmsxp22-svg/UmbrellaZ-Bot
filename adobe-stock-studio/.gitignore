@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.astro/
+# Dados de execução (perfil do navegador, logs, miniaturas, configurações locais)
+data/
+# Binários baixados (Real-ESRGAN)
+tools/
+.env

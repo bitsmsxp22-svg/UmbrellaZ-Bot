@@ -1,0 +1,315 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { resolveOutputDir } from '../lib/paths';
+import { loadSettings } from '../lib/settings';
+
+const settings = await loadSettings();
+const outputDir = resolveOutputDir(settings.outputDir);
+const steps = ['Pesquisa', 'Prompts', 'Geração', 'Ampliação IA', 'CSV', 'Envio', 'Log e limpeza'];
+---
+
+<Layout title="Painel" active="painel">
+  <section class="panel hero">
+    <div>
+      <div class="hero-stage">
+        <span id="stage">Conectando…</span>
+        <span class="badge badge-sim" id="sim-badge" hidden>Modo simulação</span>
+      </div>
+      <div class="hero-message" id="message"></div>
+      <div class="hero-meta">
+        <span>Lote: <b id="meta-batch">—</b></span>
+        <span>Ciclo: <b id="meta-cycle">0</b></span>
+        <span>Ligado há: <b id="meta-uptime">—</b></span>
+        <span id="meta-wait-wrap" hidden>Retoma em: <b id="meta-wait">—</b></span>
+        <span>Pasta: <b class="mono" title={outputDir}>{outputDir}</b></span>
+      </div>
+      <div class="progress"><div id="progress"></div></div>
+      <div class="alert" id="alert" hidden>
+        <div id="alert-text"></div>
+        <button class="btn" id="btn-login" hidden>Abrir navegador para login</button>
+      </div>
+    </div>
+    <div class="hero-actions">
+      <button class="btn btn-big btn-start" id="btn-start" disabled>▶ Ligar produção</button>
+      <button class="btn btn-big btn-stop" id="btn-stop" disabled>■ Parar produção</button>
+    </div>
+  </section>
+
+  <div class="steps" id="steps">
+    {
+      steps.map((s, i) => (
+        <div class="step" data-step={i}>
+          <span class="n">Etapa {i + 1}</span>
+          {s}
+        </div>
+      ))
+    }
+  </div>
+
+  <section class="stats">
+    <div class="stat"><div class="label">Geradas (sessão)</div><div class="value" id="c-generated">0</div></div>
+    <div class="stat"><div class="label">Ampliadas (sessão)</div><div class="value" id="c-upscaled">0</div></div>
+    <div class="stat"><div class="label">Enviadas (sessão)</div><div class="value" id="c-uploaded">0</div></div>
+    <div class="stat"><div class="label">Falhas (sessão)</div><div class="value" id="c-failed">0</div></div>
+    <div class="stat"><div class="label">Lotes (sessão)</div><div class="value" id="c-batches">0</div></div>
+    <div class="stat"><div class="label">Total já enviado</div><div class="value" id="h-total">0</div><div class="sub" id="h-today">hoje: 0</div></div>
+  </section>
+
+  <div class="layout-main">
+    <div class="grid">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Produzindo agora</h2>
+          <span class="hint" id="current-elapsed"></span>
+        </div>
+        <div id="current" class="empty">Nenhuma imagem em produção.</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Lote atual</h2>
+          <span class="hint" id="batch-count"></span>
+        </div>
+        <div id="batch" class="empty">O lote aparece aqui quando a produção começar.</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Log ao vivo</h2>
+          <button class="btn btn-ghost" id="btn-clear-log">Limpar tela</button>
+        </div>
+        <div class="console" id="console"></div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Ranking das mais vendidas</h2>
+        <span class="hint" id="research-date"></span>
+      </div>
+      <div id="research-progress" class="muted" hidden></div>
+      <select class="select" id="niche-select"></select>
+      <div class="muted" id="niche-meta" style="font-size:.78rem;margin:8px 0 12px"></div>
+      <h2 style="font-size:.85rem;margin-bottom:8px">Termos mais fortes</h2>
+      <div class="terms" id="terms"><div class="empty">Ainda sem pesquisa. Ela roda automaticamente ao ligar a produção.</div></div>
+      <h2 style="font-size:.85rem;margin-top:18px">Campeãs de download (referências)</h2>
+      <ol class="ranklist" id="ranklist"></ol>
+    </section>
+  </div>
+
+  <script>
+    import { esc, live, post, toast } from '../scripts/live';
+
+    const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+    const STEP_OF: Record<string, number> = { research: 0, prompts: 1, generating: 2, upscaling: 3, csv: 4, uploading: 5, cleanup: 6 };
+    const ITEM_LABEL: Record<string, [string, string]> = {
+      pending: ['Na fila', 'badge'],
+      generated: ['Gerada', 'badge badge-run'],
+      upscaled: ['Pronta', 'badge badge-ok'],
+      uploaded: ['Enviada', 'badge badge-ok'],
+      failed: ['Falhou', 'badge badge-error'],
+      skipped: ['Adiada', 'badge badge-wait'],
+    };
+
+    let status: any = null;
+    let research: any = null;
+    let lastStep = -1;
+
+    const fmtDuration = (ms: number) => {
+      const s = Math.max(0, Math.floor(ms / 1000));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}:${String(sec).padStart(2, '0')}`;
+    };
+
+    function renderStatus(s: any) {
+      status = s;
+      $('stage').textContent = s.stageLabel;
+      $('message').textContent = s.message;
+      $('sim-badge').hidden = !s.simulation;
+      $<HTMLButtonElement>('btn-start').disabled = s.running;
+      $<HTMLButtonElement>('btn-stop').disabled = !s.running || s.stage === 'stopping';
+      $('meta-cycle').textContent = String(s.cycle);
+      $('meta-batch').textContent = s.batch ? s.batch.id : '—';
+
+      for (const k of ['generated', 'upscaled', 'uploaded', 'failed', 'batches']) $(`c-${k}`).textContent = String(s.counters[k]);
+
+      const alert = $('alert');
+      const problem = s.stage === 'login' || s.stage === 'error';
+      alert.hidden = !problem;
+      $('alert-text').textContent = s.lastError ?? '';
+      $('btn-login').hidden = s.stage !== 'login';
+
+      const step = STEP_OF[s.stage];
+      if (step !== undefined) lastStep = step;
+      if (!s.running) lastStep = -1;
+      document.querySelectorAll<HTMLElement>('.step').forEach((el, i) => {
+        el.classList.toggle('active', s.running && i === step);
+        el.classList.toggle('done', s.running && lastStep >= 0 && i < lastStep);
+      });
+
+      const total = s.batch?.total ?? 0;
+      const ready = s.batch?.ready ?? 0;
+      $('progress').style.width = total ? `${Math.round((ready / total) * 100)}%` : '0%';
+
+      renderResearchProgress(s.research);
+      renderCurrent(s);
+      renderBatch(s);
+    }
+
+    function renderResearchProgress(p: any) {
+      const el = $('research-progress');
+      el.hidden = !p;
+      if (p) el.textContent = `Pesquisando ${p.index}/${p.total}: "${p.query}"…`;
+    }
+
+    function renderCurrent(s: any) {
+      const box = $('current');
+      const c = s.current;
+      if (!c) {
+        box.className = 'empty';
+        box.innerHTML = s.running ? esc(s.message) : 'Nenhuma imagem em produção.';
+        return;
+      }
+      const item = s.batch?.items?.[c.index - 1];
+      const thumb = item?.thumbUrl
+        ? `<div class="current-thumb" style="background-image:url('${item.thumbUrl}')"></div>`
+        : `<div class="current-thumb">${s.stage === 'generating' ? 'Gerando imagem…' : 'Aguardando'}</div>`;
+      box.className = 'current';
+      box.innerHTML = `${thumb}
+        <div>
+          <div class="muted" style="font-size:.8rem">Imagem ${c.index} de ${c.total} · nicho <b>${esc(c.niche)}</b>${item ? ` · categoria ${esc(item.category)}` : ''}</div>
+          <div class="current-title">${esc(c.title)}</div>
+          ${item ? `<div class="muted" style="font-size:.8rem;margin-top:4px">Inspirada na #${item.inspirationRank} mais baixada: “${esc(item.inspiration)}” · prompt por ${item.engine === 'chatgpt' ? 'ChatGPT' : 'gerador local'}</div>` : ''}
+          <div class="prompt-box">${esc(c.prompt)}</div>
+          ${item ? `<div class="chips">${item.keywords.map((k: string) => `<span class="chip">${esc(k)}</span>`).join('')}</div>` : ''}
+        </div>`;
+    }
+
+    function renderBatch(s: any) {
+      const box = $('batch');
+      const b = s.batch;
+      if (!b) {
+        box.className = 'empty';
+        box.textContent = 'O lote aparece aqui quando a produção começar.';
+        $('batch-count').textContent = '';
+        return;
+      }
+      $('batch-count').textContent = `${b.ready}/${b.total} prontas`;
+      box.className = 'batch-grid';
+      box.innerHTML = b.items
+        .map((it: any, i: number) => {
+          const [label, cls] = ITEM_LABEL[it.status] ?? [it.status, 'badge'];
+          const active = s.current && s.current.index === i + 1 ? ' is-active' : '';
+          const size = it.width ? `${it.width}×${it.height}` : '';
+          return `<div class="card${active}" title="${esc(it.error ?? it.prompt)}">
+            <div class="thumb" style="${it.thumbUrl ? `background-image:url('${it.thumbUrl}')` : ''}">${it.thumbUrl ? '' : '···'}</div>
+            <div class="body">
+              <div class="title">${esc(it.title)}</div>
+              <div class="meta"><span class="${cls}">${label}</span> ${size}</div>
+            </div>
+          </div>`;
+        })
+        .join('');
+    }
+
+    function renderResearch(r: any) {
+      research = r;
+      const select = $<HTMLSelectElement>('niche-select');
+      const current = select.value;
+      select.innerHTML =
+        `<option value="__all">Todos os nichos (geral)</option>` +
+        r.niches.map((n: any, i: number) => `<option value="${i}">${n.seasonal ? '📅 ' : ''}${esc(n.query)}</option>`).join('');
+      if ([...select.options].some((o) => o.value === current)) select.value = current;
+      $('research-date').textContent = `atualizada ${new Date(r.generatedAt).toLocaleString('pt-BR')}`;
+      renderNiche();
+    }
+
+    function renderNiche() {
+      if (!research) return;
+      const value = $<HTMLSelectElement>('niche-select').value;
+      const SOURCE: Record<string, string> = { adobe: 'Adobe Stock ao vivo', cache: 'último resultado salvo', builtin: 'referências internas' };
+      let terms: any[];
+      let concepts: { rank: number; title: string; url?: string; niche?: string }[];
+      if (value === '__all' || value === '') {
+        terms = research.topTerms.slice(0, 18);
+        const max = terms[0]?.score || 1;
+        terms = terms.map((t: any) => ({ ...t, score: Math.round((t.score / max) * 100) }));
+        concepts = research.topConcepts.slice(0, 15);
+        $('niche-meta').textContent = `${research.niches.length} nichos analisados, ordenados por número de downloads.`;
+      } else {
+        const n = research.niches[Number(value)];
+        terms = n.terms.slice(0, 18);
+        concepts = n.items.slice(0, 15);
+        $('niche-meta').textContent =
+          `Fonte: ${SOURCE[n.source] ?? n.source}` +
+          (n.totalResults ? ` · ${n.totalResults.toLocaleString('pt-BR')} resultados concorrentes` : '') +
+          (n.seasonalLabel ? ` · sazonal: ${n.seasonalLabel}` : '');
+      }
+      $('terms').innerHTML = terms.length
+        ? terms
+            .map((t: any) => `<div class="term"><span class="name" title="${esc(t.term)}">${esc(t.term)}</span><div class="bar"><div style="width:${t.score}%"></div></div><span class="score">${t.score}</span></div>`)
+            .join('')
+        : '<div class="empty">Sem termos.</div>';
+      $('ranklist').innerHTML = concepts
+        .map((c) => {
+          const title = c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noreferrer">${esc(c.title)}</a>` : esc(c.title);
+          return `<li><span class="rk">#${c.rank}</span><span>${title}${c.niche ? ` <span class="muted">· ${esc(c.niche)}</span>` : ''}</span></li>`;
+        })
+        .join('');
+    }
+
+    const consoleEl = $('console');
+    function appendLog(l: any) {
+      const nearBottom = consoleEl.scrollHeight - consoleEl.scrollTop - consoleEl.clientHeight < 60;
+      const div = document.createElement('div');
+      div.className = `line l-${l.level}`;
+      div.innerHTML = `<span class="ts">${new Date(l.ts).toLocaleTimeString('pt-BR')}</span>${esc(l.message)}`;
+      consoleEl.appendChild(div);
+      while (consoleEl.childElementCount > 400) consoleEl.firstElementChild?.remove();
+      if (nearBottom) consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    live({
+      status: renderStatus,
+      logs(lines: any[]) {
+        consoleEl.innerHTML = '';
+        lines.forEach(appendLog);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+      },
+      log: appendLog,
+      research: renderResearch,
+      history(h: any) {
+        $('h-total').textContent = String(h.total);
+        $('h-today').textContent = `hoje: ${h.today}`;
+      },
+    });
+
+    setInterval(() => {
+      if (!status) return;
+      $('meta-uptime').textContent = status.running && status.startedAt ? fmtDuration(Date.now() - Date.parse(status.startedAt)) : '—';
+      const waitWrap = $('meta-wait-wrap');
+      waitWrap.hidden = !status.waitUntil;
+      if (status.waitUntil) $('meta-wait').textContent = fmtDuration(Date.parse(status.waitUntil) - Date.now());
+      $('current-elapsed').textContent = status.current ? `há ${fmtDuration(Date.now() - Date.parse(status.current.startedAt))}` : '';
+    }, 1000);
+
+    $('btn-start').addEventListener('click', async () => {
+      $<HTMLButtonElement>('btn-start').disabled = true;
+      const r = await post('/api/production/start');
+      toast(r.message, r.ok ? 'ok' : 'error');
+    });
+    $('btn-stop').addEventListener('click', async () => {
+      $<HTMLButtonElement>('btn-stop').disabled = true;
+      const r = await post('/api/production/stop');
+      toast(r.message, r.ok ? 'ok' : 'error');
+    });
+    $('btn-login').addEventListener('click', async () => {
+      const r = await post('/api/browser/open');
+      toast(r.message, r.ok ? 'ok' : 'error');
+    });
+    $('btn-clear-log').addEventListener('click', () => (consoleEl.innerHTML = ''));
+    $('niche-select').addEventListener('change', renderNiche);
+  </script>
+</Layout>
