@@ -45,6 +45,27 @@ test('título segue o Adobe: sem marcas, sem vírgulas, sem "AI generated", até
   assert.ok(!/\s(with|and|of|in|a)$/i.test(long), long);
 });
 
+test('título: Title Case vira frase, sem " - ", e o corte não deixa pedaço solto', () => {
+  assert.equal(
+    sanitizeTitle('Thanksgiving - Pumpkins On Rustic Table With Candles And String Lights'),
+    'Thanksgiving pumpkins on rustic table with candles and string lights',
+  );
+  const cut = sanitizeTitle('Black torn paper isolated on white background Copy space for black text and more words here');
+  assert.ok(cut.length <= 70, cut);
+  assert.ok(!/\s(for|with|and)(\s\w+)?$/i.test(cut), cut);
+  assert.equal(sanitizeTitle('Cute muzzle of a black cat close up flat lay top view'), 'Cute muzzle of a black cat close up flat lay top view');
+  assert.equal(sanitizeTitle('Business Team Meeting In Modern NYC Office Space'), 'Business team meeting in modern NYC office space');
+});
+
+test('miniatura redimensionada: acha o endereço do original', async () => {
+  const { unwrapResizedUrl } = await import('../src/lib/providers/web-helpers');
+  const page = 'https://site.test/gerar';
+  assert.deepEqual(unwrapResizedUrl('/_next/image?url=%2Fuploads%2Fa.png&w=750&q=75', page), ['https://site.test/uploads/a.png', 'https://site.test/_next/image?url=%2Fuploads%2Fa.png']);
+  assert.ok(unwrapResizedUrl('https://cdn.test/cdn-cgi/image/width=760,quality=80/img/b.webp', page).includes('https://cdn.test/img/b.webp'));
+  assert.deepEqual(unwrapResizedUrl('https://cdn.test/c.jpg?w=760&token=x', page), ['https://cdn.test/c.jpg?token=x']);
+  assert.deepEqual(unwrapResizedUrl('https://cdn.test/d.jpg', page), []);
+});
+
 test('categoria: nicho pesa e valores inválidos são reclassificados', () => {
   assert.equal(classifyCategory('halloween halloween witch hat and cauldron'), 15);
   assert.equal(classifyCategory('business teamwork office meeting'), 3);

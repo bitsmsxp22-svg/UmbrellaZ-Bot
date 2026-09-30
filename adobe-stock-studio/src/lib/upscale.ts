@@ -6,7 +6,11 @@ import sharp from 'sharp';
 import { log } from './bus';
 import { paths } from './paths';
 import type { Settings } from './settings';
-import { StopError } from './util';
+import { StopError, removeQuiet } from './util';
+
+// No Windows o cache da libvips mantém os arquivos abertos e impede apagá-los (EBUSY).
+// Sem cache + leitura para a memória, nenhum arquivo fica preso.
+sharp.cache(false);
 
 /** Exigências do Adobe Stock para fotos/ilustrações rasterizadas. */
 export const ADOBE_LIMITS = {
@@ -129,7 +133,8 @@ export async function upscaleForAdobe(input: string, outputJpg: string, settings
   }
 
   try {
-    const meta = await sharp(source, { limitInputPixels: false }).metadata();
+    const data = await fs.promises.readFile(source);
+    const meta = await sharp(data, { limitInputPixels: false }).metadata();
     const w = meta.width ?? 0;
     const h = meta.height ?? 0;
     if (!w || !h) throw new Error('imagem inválida');
@@ -146,21 +151,21 @@ export async function upscaleForAdobe(input: string, outputJpg: string, settings
 
     let quality = settings.jpegQuality;
     for (;;) {
-      let pipeline = sharp(source, { limitInputPixels: false }).resize(width, height, { kernel: 'lanczos3', fit: 'fill' });
+      let pipeline = sharp(data, { limitInputPixels: false }).resize(width, height, { kernel: 'lanczos3', fit: 'fill' });
       if (source === input) pipeline = pipeline.sharpen({ sigma: 0.6 });
-      await pipeline
+      const jpg = await pipeline
         .toColorspace('srgb')
         .withIccProfile('srgb')
         .jpeg({ quality, mozjpeg: true, chromaSubsampling: '4:4:4' })
-        .toFile(outputJpg);
-      const sizeBytes = fs.statSync(outputJpg).size;
-      if (sizeBytes <= ADOBE_LIMITS.maxBytes || quality <= 75) {
-        return { width, height, sizeBytes, method };
+        .toBuffer();
+      if (jpg.length <= ADOBE_LIMITS.maxBytes || quality <= 75) {
+        await fs.promises.writeFile(outputJpg, jpg);
+        return { width, height, sizeBytes: jpg.length, method };
       }
       quality -= 5;
     }
   } finally {
-    if (source !== input) fs.rmSync(tmpPng, { force: true });
+    if (source !== input) await removeQuiet(tmpPng);
   }
 }
 
@@ -174,11 +179,12 @@ export async function selfTestRealEsrgan(settings: Settings, signal: AbortSignal
     await sharp({ create: { width: 64, height: 64, channels: 3, background: '#808080' } }).png().toFile(input);
     await runRealEsrgan(status.binary, input, path.join(dir, 'out.png'), settings.realesrganModel, signal);
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    await removeQuiet(dir, true);
   }
 }
 
 /** Miniatura para o painel e para o histórico (fica salva mesmo depois de apagar o original). */
-export async function makeThumb(input: string, output: string): Promise<void> {
-  await sharp(input).resize({ width: 480, withoutEnlargement: true }).webp({ quality: 78 }).toFile(output);
+export async function makeThumb(input: Buffer, output: string): Promise<void> {
+  const thumb = await sharp(input).resize({ width: 480, withoutEnlargement: true }).webp({ quality: 78 }).toBuffer();
+  await fs.promises.writeFile(output, thumb);
 }

@@ -17,7 +17,7 @@ import { generateImage } from './image-generation';
 import { installRealEsrgan } from './realesrgan-install';
 import { keepAwake } from './keep-awake';
 import { makeThumb, realEsrganStatus, selfTestRealEsrgan, upscaleForAdobe } from './upscale';
-import { NeedsLoginError, RateLimitError, RefusedError, StopError, errorMessage, sleep, throwIfAborted } from './util';
+import { NeedsLoginError, RateLimitError, RefusedError, StopError, errorMessage, removeQuiet, sleep, throwIfAborted } from './util';
 
 export type Stage =
   | 'idle'
@@ -364,11 +364,13 @@ class ProductionEngine {
           item.generator = source;
           const meta = await sharp(buffer).metadata();
           const ext = meta.format === 'jpeg' ? 'jpg' : (meta.format ?? 'png');
-          item.rawPath = path.join(batch.dir, `${path.parse(item.filename).name}.original.${ext}`);
+          // Nome novo a cada tentativa: no Windows um arquivo recém-apagado pode continuar preso por instantes.
+          await removeQuiet(item.rawPath);
+          item.rawPath = path.join(batch.dir, `${path.parse(item.filename).name}.original-${Date.now().toString(36)}.${ext}`);
           await fs.writeFile(item.rawPath, buffer);
           ensureDir(paths.thumbs);
           item.thumb = `${item.id}.webp`;
-          await makeThumb(item.rawPath, path.join(paths.thumbs, item.thumb));
+          await makeThumb(buffer, path.join(paths.thumbs, item.thumb));
           item.status = 'generated';
           item.error = undefined;
           this.status.counters.generated++;
@@ -382,8 +384,10 @@ class ProductionEngine {
           const finalPath = path.join(batch.dir, item.filename);
           const r = await upscaleForAdobe(item.rawPath, finalPath, settings, signal);
           Object.assign(item, { finalPath, width: r.width, height: r.height, sizeBytes: r.sizeBytes, upscaler: r.method, status: 'upscaled' as const });
-          await fs.rm(item.rawPath, { force: true });
           this.status.counters.upscaled++;
+          await saveBatch(batch);
+          // Limpeza do original nunca derruba uma imagem pronta (se o Windows segurar o arquivo, fica para o fim do lote).
+          if (await removeQuiet(item.rawPath)) item.rawPath = undefined;
           await saveBatch(batch);
           this.viewBatch(batch);
           log.success(`Ampliada para ${r.width}×${r.height} (${((r.width * r.height) / 1e6).toFixed(1)} MP, ${(r.sizeBytes / 1048576).toFixed(1)} MB) com ${r.method}.`);
@@ -507,8 +511,8 @@ class ProductionEngine {
       if (!accepted.has(item.filename)) continue;
       let deleted = false;
       if (settings.deleteAfterUpload && item.finalPath) {
-        await fs.rm(item.finalPath, { force: true });
-        deleted = true;
+        deleted = await removeQuiet(item.finalPath);
+        if (!deleted) log.warn(`Não consegui apagar ${item.finalPath} agora (o Windows está usando o arquivo). Apague depois, se quiser.`);
       }
       item.status = 'uploaded';
       this.status.counters.uploaded++;
@@ -543,7 +547,7 @@ class ProductionEngine {
     const leftovers = ready.filter((i) => !accepted.has(i.filename));
     batch.status = 'done';
     if (settings.deleteAfterUpload && leftovers.length === 0) {
-      await fs.rm(batch.dir, { recursive: true, force: true });
+      if (!(await removeQuiet(batch.dir, true))) await saveBatch(batch);
     } else {
       await saveBatch(batch);
     }

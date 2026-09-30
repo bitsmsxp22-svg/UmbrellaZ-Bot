@@ -163,7 +163,19 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
         </div>
         <div class="row">
           <div class="field">
-            <label for="imageTimeoutMin">Tempo máximo por imagem (min)</label>
+            <label for="siteTimeoutMin">Tempo máximo por site (min)</label>
+            <input type="number" id="siteTimeoutMin" name="siteTimeoutMin" min="1" max="15" value={s.siteTimeoutMin} />
+            <span class="help">Se o site nem reagir ao botão em 60 s, o sistema já passa para o próximo.</span>
+          </div>
+          <div class="field">
+            <label for="minSourceLongSide">Tamanho mínimo da imagem gerada (px)</label>
+            <input type="number" id="minSourceLongSide" name="minSourceLongSide" min="512" max="4096" value={s.minSourceLongSide} />
+            <span class="help">Sites que só entregam miniaturas menores que isso são pausados por 24 h (a qualidade final cairia).</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="imageTimeoutMin">Tempo máximo no ChatGPT logado (min)</label>
             <input type="number" id="imageTimeoutMin" name="imageTimeoutMin" min="1" max="30" value={s.imageTimeoutMin} />
           </div>
           <div class="field">
@@ -294,6 +306,7 @@ const selectorExample = JSON.stringify({ 'chatgpt.composer': DEFAULT_SELECTORS['
     const NUMBER_FIELDS = new Set([
       'imagesPerBatch', 'maxBatchesPerSession', 'pauseBetweenImagesSec', 'pauseBetweenBatchesMin', 'researchResultsPerQuery',
       'researchDeepItems', 'researchRefreshHours', 'imageTimeoutMin', 'rateLimitCooldownMin', 'targetLongSide', 'jpegQuality', 'csvApplyWaitSec',
+      'siteCooldownHours', 'siteTimeoutMin', 'minSourceLongSide',
     ]);
 
     form.addEventListener('submit', async (e) => {

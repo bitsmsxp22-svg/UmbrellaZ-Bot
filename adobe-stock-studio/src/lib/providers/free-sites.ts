@@ -1,3 +1,4 @@
+import type { Page } from 'playwright';
 import sharp from 'sharp';
 import { browser } from '../browser';
 import { DEFAULT_FREE_SITES } from './site-list';
@@ -16,10 +17,14 @@ import {
   findPromptInput,
   imageSources,
   largeImages,
+  clickRobust,
   newLines,
+  pageSignature,
   preloadLazyImages,
   settle,
+  tryDownloadButton,
   trySelectAspect,
+  unwrapResizedUrl,
   waitForChallenge,
 } from './web-helpers';
 
@@ -100,9 +105,43 @@ const RATIO_TEXT: Record<string, string> = {
   '4:3': 'Landscape 4:3 aspect ratio.',
 };
 
+/** Melhor versão da imagem: botão "Download" do site → endereço original por trás da miniatura → a própria imagem. */
+async function bestQuality(page: Page, src: string, signal: AbortSignal): Promise<{ buffer: Buffer; w: number; h: number; via: string }> {
+  const options: { buffer: Buffer; via: string }[] = [];
+  const fromButton = await tryDownloadButton(page, signal).catch(() => null);
+  if (fromButton) options.push({ buffer: fromButton, via: 'botão download' });
+  for (const candidate of unwrapResizedUrl(src, page.url())) {
+    const buf = await downloadImage(page, candidate).catch(() => null);
+    if (buf) options.push({ buffer: buf, via: 'original sem redimensionar' });
+  }
+  const shown = await downloadImage(page, src).catch(() => null);
+  if (shown) options.push({ buffer: shown, via: 'imagem da página' });
+
+  let best: { buffer: Buffer; w: number; h: number; via: string } | null = null;
+  for (const o of options) {
+    const meta = await sharp(o.buffer).metadata().catch(() => null);
+    if (!meta?.width || !meta.height) continue;
+    if (!best || meta.width * meta.height > best.w * best.h) best = { buffer: o.buffer, w: meta.width, h: meta.height, via: o.via };
+  }
+  if (!best) throw new Error('não consegui baixar a imagem gerada');
+  return best;
+}
+
 /** Gera uma imagem em um site específico. */
 async function generateOnSite(url: string, prompt: string, settings: Settings, signal: AbortSignal): Promise<Buffer> {
   const page = await browser.page(settings, 'gpt-image-2');
+  try {
+    return await runSite(page, url, prompt, settings, signal);
+  } catch (err) {
+    if (err instanceof Error && err.name !== 'StopError' && !signal.aborted) {
+      const shot = await browser.screenshot(page, `site-${hostOf(url)}`);
+      if (shot) err.message += ` (captura: ${shot})`;
+    }
+    throw err;
+  }
+}
+
+async function runSite(page: Page, url: string, prompt: string, settings: Settings, signal: AbortSignal): Promise<Buffer> {
   const sel = siteSelectors(settings, url);
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await settle(page, 2000, signal);
@@ -118,11 +157,15 @@ async function generateOnSite(url: string, prompt: string, settings: Settings, s
 
   const fullPrompt = `${prompt} ${RATIO_TEXT[settings.aspectRatio] ?? ''}`.slice(0, 950);
   await fillPrompt(page, input, fullPrompt);
+  await dismissOverlays(page);
+  const signatureBefore = await pageSignature(page);
   const button = await findGenerateButton(page, input, sel.generate);
-  if (button) await button.click();
-  else await input.press('Enter');
+  if (!button || !(await clickRobust(button))) await input.press('Enter').catch(() => undefined);
 
-  const deadline = Date.now() + settings.imageTimeoutMin * 60_000;
+  const start = Date.now();
+  const deadline = start + settings.siteTimeoutMin * 60_000;
+  let reacted = false;
+  let nudged = false;
   let lastSrc = '';
   let stable = 0;
   await sleep(4000, signal);
@@ -137,21 +180,34 @@ async function generateOnSite(url: string, prompt: string, settings: Settings, s
       throw new SitePause('o site passou a pedir login/cadastro', 24 * 7);
     }
 
+    // O site reagiu ao clique? Sem nenhuma mudança em 60 s, desiste e passa para o próximo.
+    if (!reacted) {
+      reacted = (await pageSignature(page)) !== signatureBefore;
+      const idle = Date.now() - start;
+      if (!reacted && idle > 15_000 && !nudged) {
+        nudged = true;
+        await input.press('Enter').catch(() => undefined);
+      }
+      if (!reacted && idle > 60_000) throw new Error('o site não reagiu ao botão de gerar em 60 s');
+    }
+
     const imgs = (await largeImages(page, sel.image)).filter((i) => i.complete && !before.has(i.src));
-    const best = imgs.sort((a, b) => b.w * b.h - a.w * a.h)[0];
-    if (best) {
-      stable = best.src === lastSrc ? stable + 1 : 0;
-      lastSrc = best.src;
+    const shown = imgs.sort((a, b) => b.w * b.h - a.w * a.h)[0];
+    if (shown) {
+      stable = shown.src === lastSrc ? stable + 1 : 0;
+      lastSrc = shown.src;
       if (stable >= 2) {
-        const buffer = await downloadImage(page, best.src);
-        const meta = await sharp(buffer).metadata();
-        if ((meta.width ?? 0) < 512) throw new Error(`imagem baixada pequena demais (${meta.width}px)`);
-        return buffer;
+        const best = await bestQuality(page, shown.src, signal);
+        if (Math.max(best.w, best.h) < settings.minSourceLongSide) {
+          throw new SitePause(`entrega imagem pequena demais (${best.w}×${best.h}; mínimo ${settings.minSourceLongSide}px)`, 24);
+        }
+        if (best.via !== 'imagem da página') log.info(`${hostOf(url)}: imagem em resolução máxima via ${best.via} (${best.w}×${best.h}).`);
+        return best.buffer;
       }
     }
     await sleep(2500, signal);
   }
-  throw new Error(`nenhuma imagem nova em ${settings.imageTimeoutMin} min`);
+  throw new Error(`nenhuma imagem nova em ${settings.siteTimeoutMin} min`);
 }
 
 /**

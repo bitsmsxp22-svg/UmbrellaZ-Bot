@@ -1,4 +1,5 @@
-import type { Locator, Page } from 'playwright';
+import fs from 'node:fs/promises';
+import type { Download, Locator, Page } from 'playwright';
 import { sleep, throwIfAborted } from '../util';
 
 /**
@@ -94,8 +95,119 @@ export async function findPromptInput(page: Page, override?: string): Promise<Lo
   return page.locator('textarea, [contenteditable="true"], input[type="text"], input:not([type])').nth(index);
 }
 
+/**
+ * Clique que não trava com banners/janelas por cima: clique normal → clique forçado →
+ * clique via JavaScript. Devolve false se nada funcionou.
+ */
+export async function clickRobust(loc: Locator): Promise<boolean> {
+  try {
+    await loc.click({ timeout: 8000 });
+    return true;
+  } catch {
+    /* tenta forçado */
+  }
+  try {
+    await loc.click({ timeout: 5000, force: true });
+    return true;
+  } catch {
+    /* tenta via JavaScript */
+  }
+  return loc
+    .evaluate((el) => {
+      (el as HTMLElement).click();
+      return true;
+    })
+    .catch(() => false);
+}
+
+/** "Impressão digital" da página: muda quando o site reage (texto, imagens, elementos). */
+export async function pageSignature(page: Page): Promise<string> {
+  return page
+    .evaluate(() => {
+      const text = document.body?.innerText ?? '';
+      return `${text.length}|${document.images.length}|${document.getElementsByTagName('*').length}|${document.querySelectorAll('canvas, video, progress, [role="progressbar"], [aria-busy="true"]').length}`;
+    })
+    .catch(() => '');
+}
+
+/**
+ * Muitos sites mostram uma versão reduzida da imagem (Next.js /_next/image, Cloudflare
+ * /cdn-cgi/image, parâmetros ?w=). Devolve os endereços candidatos ao arquivo original.
+ */
+export function unwrapResizedUrl(src: string, pageUrl: string): string[] {
+  const out: string[] = [];
+  try {
+    const u = new URL(src, pageUrl);
+    if (u.pathname.endsWith('/_next/image') && u.searchParams.get('url')) {
+      out.push(new URL(u.searchParams.get('url')!, pageUrl).toString());
+    }
+    const cf = u.pathname.match(/\/cdn-cgi\/image\/[^/]+\/(.+)$/);
+    if (cf) out.push(new URL(cf[1].startsWith('http') ? cf[1] : `/${cf[1]}`, u.origin).toString());
+    const sizeParams = ['w', 'width', 'h', 'height', 'size', 'resize', 'q', 'quality', 'fit', 'dpr'];
+    if (sizeParams.some((k) => u.searchParams.has(k))) {
+      const clean = new URL(u.toString());
+      for (const k of sizeParams) clean.searchParams.delete(k);
+      out.push(clean.toString());
+    }
+  } catch {
+    /* src inválido: sem candidatos */
+  }
+  return [...new Set(out)].filter((c) => c !== src);
+}
+
+const DOWNLOAD_TEXT = /(download|baixar|descargar|télécharger|herunterladen|下载|ダウンロード|скачать|save image|salvar imagem)/i;
+
+/** Tenta o botão/link "Download" do site para pegar o arquivo em resolução máxima. */
+export async function tryDownloadButton(page: Page, signal?: AbortSignal): Promise<Buffer | null> {
+  // 1) Links: baixa o endereço direto, sem clicar.
+  const hrefs = await page
+    .evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLAnchorElement>('a[download], a[href]'))
+        .filter((a) => a.hasAttribute('download') || /(download|baixar|descargar|下载|скачать)/i.test(`${a.textContent} ${a.title} ${a.getAttribute('aria-label') ?? ''}`))
+        .map((a) => a.href)
+        .filter((h) => /^(https?:|blob:|data:image)/.test(h)),
+    )
+    .catch(() => [] as string[]);
+  for (const href of hrefs.reverse()) {
+    const buf = await downloadImage(page, href).catch(() => null);
+    if (buf) return buf;
+  }
+
+  // 2) Botões: clica e espera o download (ou a imagem abrir numa aba nova).
+  const buttons = [
+    page.getByRole('button', { name: DOWNLOAD_TEXT }).last(),
+    page.locator('button[aria-label*="ownload" i], button[title*="ownload" i], [role="button"][aria-label*="ownload" i]').last(),
+  ];
+  for (const btn of buttons) {
+    if (!(await isVisible(btn))) continue;
+    const download = page.waitForEvent('download', { timeout: 20_000 }).catch(() => null);
+    const popup = page.context().waitForEvent('page', { timeout: 20_000 }).catch(() => null);
+    if (!(await clickRobust(btn))) continue;
+    // Primeiro resultado que NÃO seja vazio (um timeout de um não pode encerrar a espera do outro).
+    const first = await new Promise<Download | Page | null>((resolve) => {
+      let pending = 2;
+      const done = (v: Download | Page | null) => (v ? resolve(v) : --pending === 0 && resolve(null));
+      download.then(done);
+      popup.then(done);
+      signal?.addEventListener('abort', () => resolve(null), { once: true });
+    });
+    if (!first) continue;
+    if ('saveAs' in first) {
+      const file = await first.path().catch(() => null);
+      if (file) return fs.readFile(file);
+      continue;
+    }
+    const tab = first as Page;
+    await tab.waitForLoadState('domcontentloaded').catch(() => undefined);
+    const url = tab.url();
+    await tab.close().catch(() => undefined);
+    if (/^(https?:|blob:|data:)/.test(url)) return downloadImage(page, url).catch(() => null);
+  }
+  return null;
+}
+
 export async function fillPrompt(page: Page, input: Locator, text: string): Promise<void> {
-  await input.click();
+  if (!(await clickRobust(input))) await input.focus().catch(() => undefined);
   const editable = await input.evaluate((el) => el.getAttribute('contenteditable') === 'true').catch(() => false);
   if (editable) {
     await page.keyboard.press('ControlOrMeta+A');
@@ -165,7 +277,7 @@ export async function largeImages(page: Page, scope?: string): Promise<PageImage
       const roots = sel ? Array.from(document.querySelectorAll(sel)) : [document.body];
       const imgs = roots.flatMap((r) => (r.tagName === 'IMG' ? [r as HTMLImageElement] : Array.from(r.querySelectorAll('img'))));
       return imgs
-        .filter((img) => img.naturalWidth >= 512 && img.naturalHeight >= 384)
+        .filter((img) => img.naturalWidth >= 380 && img.naturalHeight >= 280)
         .map((img) => ({ src: img.currentSrc || img.src, w: img.naturalWidth, h: img.naturalHeight, complete: img.complete }));
     }, scope ?? null)
     .catch(() => [] as PageImage[]);

@@ -107,6 +107,21 @@ export async function writeJson(file: string, data: unknown): Promise<void> {
   await fs.rename(tmp, file);
 }
 
+/**
+ * Apaga arquivo/pasta sem nunca lançar erro. No Windows, antivírus, indexador ou o próprio
+ * navegador podem segurar o arquivo por alguns instantes (EBUSY/EPERM): tenta de novo e,
+ * se não der, devolve false e o arquivo fica para a limpeza seguinte.
+ */
+export async function removeQuiet(target: string | undefined, recursive = false): Promise<boolean> {
+  if (!target) return true;
+  try {
+    await fs.rm(target, { force: true, recursive, maxRetries: 10, retryDelay: 300 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function fileExists(file: string): Promise<boolean> {
   try {
     await fs.access(file);

@@ -30,6 +30,8 @@ export interface Settings {
   imageProvider: ImageProvider;
   freeSites: string[];
   siteCooldownHours: number;
+  siteTimeoutMin: number;
+  minSourceLongSide: number;
   aspectRatio: AspectRatio;
   chatgptUrl: string;
   useTemporaryChat: boolean;
@@ -89,6 +91,8 @@ export const DEFAULT_SETTINGS: Settings = {
   imageProvider: 'free-sites',
   freeSites: DEFAULT_FREE_SITES,
   siteCooldownHours: 12,
+  siteTimeoutMin: 3,
+  minSourceLongSide: 1000,
   aspectRatio: '3:2',
   chatgptUrl: 'https://chatgpt.com/',
   useTemporaryChat: false,
@@ -178,6 +182,8 @@ export function normalizeSettings(input: Partial<Record<keyof Settings, unknown>
     imageProvider: oneOf(input.imageProvider, ['free-sites', 'chatgpt'] as const, d.imageProvider),
     freeSites: urlList(input.freeSites, d.freeSites),
     siteCooldownHours: clamp(input.siteCooldownHours, 1, 168, d.siteCooldownHours),
+    siteTimeoutMin: clamp(input.siteTimeoutMin, 1, 15, d.siteTimeoutMin),
+    minSourceLongSide: clamp(input.minSourceLongSide, 512, 4096, d.minSourceLongSide),
     aspectRatio: oneOf(input.aspectRatio, ['3:2', '2:3', '16:9', '1:1', '4:3'] as const, d.aspectRatio),
     chatgptUrl: url(input.chatgptUrl, d.chatgptUrl),
     useTemporaryChat: bool(input.useTemporaryChat, d.useTemporaryChat),

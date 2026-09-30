@@ -29,16 +29,37 @@ export function removeBlockedTerms(text: string): string {
 /** Regras do Adobe para o título: até 70 caracteres, sem vírgulas, sem "generative AI". */
 export const TITLE_MAX = 70;
 
+const SMALL_WORDS = /^(with|and|of|in|on|at|for|the|a|an|to|by|from|or|as)$/i;
+
+/** "Pumpkins On Rustic Table With Candles" → "Pumpkins on rustic table with candles" (siglas ficam). */
+function sentenceCase(text: string): string {
+  const words = text.split(' ');
+  const long = words.filter((w) => w.length > 3);
+  const capitalized = long.filter((w) => /^[A-Z][a-z]/.test(w)).length;
+  if (long.length < 3 || capitalized / long.length < 0.6) return text;
+  return words.map((w, i) => (i > 0 && /^[A-Z][a-z]+$/.test(w) ? w.toLowerCase() : w)).join(' ');
+}
+
 export function sanitizeTitle(title: string): string {
   let t = removeBlockedTerms(String(title ?? ''))
     .replace(/["“”]/g, '')
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/\b(ai[- ]generated|generative ai|stock photo)\b/gi, '')
+    .replace(/\s+[-–—|]\s+/g, ' ')
     .replace(/\s*[,;]\s*/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .replace(/^[\s.:-]+|[\s:-]+$/g, '')
     .trim();
-  if (t.length > TITLE_MAX) t = t.slice(0, TITLE_MAX + 1).replace(/\s+\S*$/, '').replace(/\s+(with|and|of|in|on|at|for|the|a|an)$/i, '');
+  t = sentenceCase(t);
+  if (t.length > TITLE_MAX) {
+    const words = t.slice(0, TITLE_MAX + 1).split(' ');
+    words.pop(); // palavra cortada no meio
+    // Não termina em "… for black" / "… with": corta o pedaço solto depois da última preposição.
+    const lastSmall = words.map((w) => SMALL_WORDS.test(w)).lastIndexOf(true);
+    if (lastSmall > words.length / 2 && words.length - lastSmall <= 3) words.splice(lastSmall);
+    while (words.length > 1 && SMALL_WORDS.test(words[words.length - 1])) words.pop();
+    t = words.join(' ');
+  }
   return t ? t[0].toUpperCase() + t.slice(1) : 'Stock image';
 }
 
