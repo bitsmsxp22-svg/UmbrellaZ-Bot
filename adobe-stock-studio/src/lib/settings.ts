@@ -1,5 +1,5 @@
 import { paths } from './paths';
-import { DEFAULT_FREE_SITES } from './providers/site-list';
+import { DEFAULT_FREE_SITES, FIRST_DEFAULT_FREE_SITES } from './providers/site-list';
 import { readJson, writeJson } from './util';
 
 export type AspectRatio = '3:2' | '2:3' | '16:9' | '1:1' | '4:3';
@@ -29,6 +29,8 @@ export interface Settings {
   promptEngine: PromptEngine;
   imageProvider: ImageProvider;
   freeSites: string[];
+  /** Sites da lista padrão que o usuário já recebeu (os novos são acrescentados sozinhos). */
+  knownDefaultSites: string[];
   siteCooldownHours: number;
   siteTimeoutMin: number;
   minSourceLongSide: number;
@@ -90,6 +92,7 @@ export const DEFAULT_SETTINGS: Settings = {
   promptEngine: 'chatgpt',
   imageProvider: 'free-sites',
   freeSites: DEFAULT_FREE_SITES,
+  knownDefaultSites: DEFAULT_FREE_SITES,
   siteCooldownHours: 12,
   siteTimeoutMin: 3,
   minSourceLongSide: 1000,
@@ -181,6 +184,7 @@ export function normalizeSettings(input: Partial<Record<keyof Settings, unknown>
     promptEngine: oneOf(input.promptEngine, ['chatgpt', 'local'] as const, d.promptEngine),
     imageProvider: oneOf(input.imageProvider, ['free-sites', 'chatgpt'] as const, d.imageProvider),
     freeSites: urlList(input.freeSites, d.freeSites),
+    knownDefaultSites: urlList(input.knownDefaultSites, []),
     siteCooldownHours: clamp(input.siteCooldownHours, 1, 168, d.siteCooldownHours),
     siteTimeoutMin: clamp(input.siteTimeoutMin, 1, 15, d.siteTimeoutMin),
     minSourceLongSide: clamp(input.minSourceLongSide, 512, 4096, d.minSourceLongSide),
@@ -211,7 +215,18 @@ export function normalizeSettings(input: Partial<Record<keyof Settings, unknown>
 
 export async function loadSettings(): Promise<Settings> {
   const stored = await readJson<Partial<Settings>>(paths.settings, {});
-  return normalizeSettings({ ...DEFAULT_SETTINGS, ...stored });
+  const settings = normalizeSettings({ ...DEFAULT_SETTINGS, ...stored });
+  // Sites novos da lista padrão entram sozinhos; os que o usuário removeu não voltam.
+  if (stored.freeSites) {
+    const known = new Set(stored.knownDefaultSites?.length ? stored.knownDefaultSites : FIRST_DEFAULT_FREE_SITES);
+    const fresh = DEFAULT_FREE_SITES.filter((u) => !known.has(u) && !settings.freeSites.includes(u));
+    if (fresh.length || !stored.knownDefaultSites?.length) {
+      settings.freeSites = [...settings.freeSites, ...fresh];
+      settings.knownDefaultSites = [...new Set([...known, ...DEFAULT_FREE_SITES])];
+      await writeJson(paths.settings, settings);
+    }
+  }
+  return settings;
 }
 
 export async function saveSettings(partial: Partial<Record<keyof Settings, unknown>>): Promise<Settings> {

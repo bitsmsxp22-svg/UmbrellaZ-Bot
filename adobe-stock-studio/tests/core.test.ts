@@ -125,6 +125,25 @@ test('configurações: valores fora do limite são corrigidos', () => {
   assert.deepEqual(s.niches, ['a', 'b']);
 });
 
+test('sites novos da lista padrão entram sozinhos; os removidos pelo usuário não voltam', async () => {
+  const { paths } = await import('../src/lib/paths');
+  const { writeJson } = await import('../src/lib/util');
+  const { loadSettings } = await import('../src/lib/settings');
+  const { DEFAULT_FREE_SITES, FIRST_DEFAULT_FREE_SITES } = await import('../src/lib/providers/site-list');
+  // Usuário antigo: lista da primeira versão, sem um site que ele removeu, e um site próprio.
+  const removed = FIRST_DEFAULT_FREE_SITES[0];
+  const mine = 'https://meu-site.test/';
+  await writeJson(paths.settings, { freeSites: [...FIRST_DEFAULT_FREE_SITES.slice(1), mine] });
+  const s = await loadSettings();
+  assert.ok(!s.freeSites.includes(removed), 'site removido voltou');
+  assert.ok(s.freeSites.includes(mine));
+  for (const u of DEFAULT_FREE_SITES.filter((x) => !FIRST_DEFAULT_FREE_SITES.includes(x))) assert.ok(s.freeSites.includes(u), `faltou ${u}`);
+  // Segunda carga não duplica nada.
+  const again = await loadSettings();
+  assert.equal(again.freeSites.length, new Set(again.freeSites).size);
+  assert.equal(again.freeSites.length, s.freeSites.length);
+});
+
 test('gerador local: prompts sem repetição, título e palavras-chave limpos', async () => {
   const niches = ['halloween', 'business teamwork office'].map((q) => builtinNiche(q));
   const snapshot = buildSnapshot(niches, 'test');
