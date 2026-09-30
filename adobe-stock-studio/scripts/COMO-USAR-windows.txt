@@ -1,0 +1,44 @@
+STOCK STUDIO - producao automatica para Adobe Stock (Windows 10/11, 64 bits)
+============================================================================
+
+O pacote vem com TUDO dentro, em 4 partes (limite de 30 MB por download):
+  StockStudio-parte-1.zip  o sistema (painel, dependencias, Real-ESRGAN)
+  StockStudio-parte-2.zip  Node.js portatil (metade 1)
+  StockStudio-parte-3.zip  Node.js portatil (metade 2)
+  StockStudio-parte-4.zip  modelo de IA do Real-ESRGAN
+So precisa ter o Google Chrome instalado. Nao instale mais nada.
+
+1) INSTALAR (uma vez)
+   - Baixe as 4 partes e deixe todas na mesma pasta (ex.: Downloads).
+   - Clique com o botao direito na PARTE 1 > "Extrair tudo...". Dica: extraia
+     num lugar fixo, como C:\StockStudio ou Documentos (os seus dados ficam ali).
+   - Abra a pasta StockStudio e de dois cliques em "iniciar.bat".
+     Se aparecer "O Windows protegeu o computador": "Mais informacoes" > "Executar assim mesmo".
+   - Na primeira vez ele encontra sozinho as partes 2, 3 e 4 (em Downloads, na
+     Area de Trabalho ou ao lado da pasta extraida), monta tudo e confere as assinaturas.
+   - O painel abre no navegador: http://127.0.0.1:4321
+   - Deixe a janela preta aberta enquanto usa. Fechar a janela desliga o sistema.
+
+2) TESTE SEM ENVIAR NADA (modo simulacao)
+   - Configuracoes > marque "Modo simulacao" > Salvar configuracoes.
+   - Painel > "Ligar producao": roda o fluxo inteiro com imagens de teste
+     (pesquisa, prompts, ampliacao com IA, CSV, log e limpeza), sem Adobe.
+
+3) CONFIGURAR O ADOBE STOCK (o unico login)
+   - Configuracoes > desmarque "Modo simulacao" > Salvar.
+   - "Abrir navegador" e entre na sua conta de colaborador do Adobe Stock nessa
+     janela (so uma vez; o login fica salvo).
+   - "Testar conexao com o Adobe Stock" -> deve aparecer "Conectado".
+
+4) PRODUZIR
+   - Primeiro teste real: Imagens por lote = 2 e Maximo de lotes = 1.
+   - Painel > "Ligar producao" e acompanhe o log ao vivo.
+   - Para produzir o dia inteiro: Maximo de lotes = 0 (sem limite).
+
+Onde ficam as coisas:
+   - Imagens em producao: Area de Trabalho\AdobeStock-Producao (apagadas apos o envio)
+   - Historico do que foi enviado: aba "Historico de envios" no painel
+   - Logs, miniaturas, CSVs, configuracoes e login: pasta "data" dentro de StockStudio
+
+Requisitos: Google Chrome e placa de video com Vulkan (qualquer placa recente,
+inclusive Intel/AMD integradas) para o Real-ESRGAN. Mantenha o driver de video atualizado.

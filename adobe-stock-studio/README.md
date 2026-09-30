@@ -21,7 +21,9 @@ Requisitos:
 - **Google Chrome** instalado;
 - uma placa de vídeo com **Vulkan** para o Real-ESRGAN. Quase qualquer placa dos últimos anos serve, inclusive as integradas Intel/AMD e os Macs com chip Apple.
 
-Para iniciar:
+**Pacote pronto para Windows (tudo dentro, sem instalar nada além do Chrome):** 4 partes `StockStudio-parte-1..4.zip`, geradas por `scripts/empacotar-windows.sh`. Traz Node.js portátil, dependências de Windows, o painel já compilado e o Real-ESRGAN. Extraia a parte 1, dê dois cliques em `iniciar.bat` e, na primeira vez, ele encontra as outras partes (em Downloads ou ao lado da pasta), monta tudo e confere as assinaturas SHA-256. Veja o `COMO USAR.txt` que vem dentro do pacote.
+
+A partir do código:
 - **Windows:** dê dois cliques em `iniciar.bat`.
 - **macOS/Linux:** rode `./iniciar.sh`.
 
