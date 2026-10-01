@@ -40,6 +40,15 @@ Valores estimados com a qualidade padrão `low`. O SVG final é vetorizado, ent�
 
 Acima disso, cada visitante usa a própria cota grátis do Puter. Um pedido custa cerca de US$ 0,07 nessa cota: 5 × US$ 0,0059 do GPT Image 2 mais o GPT-5.6 Sol. Se a cota do visitante acabar, o Puter oferece mais a ele. **Você nunca é cobrado.**
 
+## Testar rápido
+
+1. Instale o **Node.js 22 ou mais novo**: <https://nodejs.org> (botão LTS).
+2. Baixe e extraia o projeto. Entre na pasta `logo-studio`.
+3. **Windows:** dê dois cliques em `iniciar.bat`. **Mac/Linux:** rode `./iniciar.sh`.
+4. O navegador abre em <http://localhost:3000>. Na primeira vez a instalação leva 1 a 2 minutos.
+
+No primeiro clique em "Gerar" aparece uma janela rápida de acesso gratuito. Se o navegador bloquear, permita pop-ups para `localhost`.
+
 ## Rodar localmente
 
 Requisito: **Node.js 22 ou mais novo**. Funciona no Windows, Linux e macOS.
