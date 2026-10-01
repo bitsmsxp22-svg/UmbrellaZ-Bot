@@ -1,5 +1,5 @@
 import { log } from '../log.js';
-import { ProviderError, request, withRetries } from './http.js';
+import { MinuteLimiter, ProviderError, request, withRetries } from './http.js';
 
 /**
  * Provedor para qualquer serviço com API no formato OpenAI
@@ -9,6 +9,17 @@ import { ProviderError, request, withRetries } from './http.js';
 export class OpenAICompatibleProvider {
   constructor(opts) {
     this.opts = opts;
+    this.name = opts.name;
+    this.imageLimiter = new MinuteLimiter(opts.imageRpm || 0);
+  }
+
+  /** Saldo atual (pollen) ou null se o provedor não informa. */
+  async balance({ signal } = {}) {
+    if (!this.opts.balanceUrl) return null;
+    const res = await request(this.opts.balanceUrl, { headers: this.headers() }, { timeoutMs: 10_000, signal });
+    const data = await res.json();
+    const value = Number(data?.balance);
+    return Number.isFinite(value) ? value : null;
   }
 
   headers(extra = {}) {
@@ -23,7 +34,7 @@ export class OpenAICompatibleProvider {
       try {
         return await fn(model);
       } catch (err) {
-        if (!(err instanceof ProviderError) || err.fatal) throw err;
+        if (!(err instanceof ProviderError) || err.fatal || err.budget) throw err;
         lastErr = err;
         log.warn(`${label}: modelo ${model} falhou (${err.message}); tentando o próximo`);
       }
@@ -62,7 +73,7 @@ export class OpenAICompatibleProvider {
           return await withRetries(() => this.#edit(model, prompt, refs, transparent, signal),
             { retries: maxRetries, signal, label: `edição/${model}` });
         } catch (err) {
-          if (!(err instanceof ProviderError) || err.fatal) throw err;
+          if (!(err instanceof ProviderError) || err.fatal || err.budget) throw err;
           log.warn(`edição/${model} indisponível (${err.message}); gerando sem imagem de referência`);
         }
       }
@@ -77,6 +88,7 @@ export class OpenAICompatibleProvider {
   }
 
   async #generate(model, prompt, transparent, signal) {
+    await this.imageLimiter.wait(signal);
     const res = await request(`${this.opts.baseUrl}/images/generations`, {
       method: 'POST',
       headers: this.headers({ 'Content-Type': 'application/json' }),
@@ -86,6 +98,7 @@ export class OpenAICompatibleProvider {
   }
 
   async #edit(model, prompt, refs, transparent, signal) {
+    await this.imageLimiter.wait(signal);
     const form = new FormData();
     for (const [k, v] of Object.entries(this.#imageParams(model, transparent))) form.append(k, String(v));
     form.append('prompt', prompt);

@@ -77,14 +77,38 @@ export function guessBrand(brief) {
   return named ? named[1].trim() : '';
 }
 
+function conceptUserText(brief, n, refsCount) {
+  const directions = DIRECTIONS.slice(0, n);
+  return `Client brief:\n"""${brief}"""\n\nN = ${n}. Creative directions, in order:\n${directions.map((d, i) => `${i + 1}. ${d.hint}`).join('\n')}${refsCount ? `\n\n${refsCount} reference image(s) attached.` : ''}`;
+}
+
+/** Converte a resposta do modelo em N conceitos válidos (completa com conceitos locais se faltar algo). */
+export function parseConcepts(text, { brief, n }) {
+  const directions = DIRECTIONS.slice(0, n);
+  const fallback = fallbackConcepts(brief, n);
+  let data = null;
+  try {
+    data = text ? extractJson(text) : null;
+  } catch {
+    data = null;
+  }
+  const concepts = directions.map((d, i) => normalizeConcept(data?.concepts?.[i], d) ?? fallback[i]);
+  const brand = typeof data?.brand === 'string' ? data.brand.trim().slice(0, 60) : guessBrand(brief);
+  return { brand, concepts };
+}
+
+/** Prompt único (instruções + pedido) usado no modo do visitante, que roda no navegador. */
+export function buildConceptPrompt({ brief, n, refsCount }) {
+  return `${SYSTEM_PROMPT}\n\n${conceptUserText(brief, n, refsCount)}\n\nReturn only the JSON object.`;
+}
+
 /**
  * Pede ao modelo de texto (GPT-5.6 Sol) N conceitos diferentes.
  * refs: imagens de referência já normalizadas (PNG) — enviadas como visão.
+ * Cota esgotada (err.budget) sobe para o chamador passar o pedido ao modo do visitante.
  */
 export async function createConcepts(provider, { brief, refs = [], n, signal }) {
-  const directions = DIRECTIONS.slice(0, n);
-  const userText = `Client brief:\n"""${brief}"""\n\nN = ${n}. Creative directions, in order:\n${directions.map((d, i) => `${i + 1}. ${d.hint}`).join('\n')}${refs.length ? `\n\n${refs.length} reference image(s) attached.` : ''}`;
-  const content = [{ type: 'text', text: userText }];
+  const content = [{ type: 'text', text: conceptUserText(brief, n, refs.length) }];
   for (const ref of refs) {
     content.push({ type: 'image_url', image_url: { url: `data:image/png;base64,${ref.visionBuffer.toString('base64')}` } });
   }
@@ -95,13 +119,9 @@ export async function createConcepts(provider, { brief, refs = [], n, signal }) 
       signal,
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content }],
     });
-    const data = extractJson(text);
-    const concepts = directions.map((d, i) => normalizeConcept(data?.concepts?.[i], d));
-    const fallback = fallbackConcepts(brief, n);
-    const brand = typeof data?.brand === 'string' ? data.brand.trim().slice(0, 60) : guessBrand(brief);
-    return { brand, concepts: concepts.map((c, i) => c ?? fallback[i]) };
+    return parseConcepts(text, { brief, n });
   } catch (err) {
-    if (signal?.aborted) throw err;
+    if (signal?.aborted || err?.budget) throw err;
     log.warn(`diretor indisponível (${err.message}); usando conceitos locais`);
     return { brand: guessBrand(brief), concepts: fallbackConcepts(brief, n) };
   }

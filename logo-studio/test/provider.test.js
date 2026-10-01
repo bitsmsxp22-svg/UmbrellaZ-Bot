@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ProviderError } from '../src/providers/http.js';
+import { MinuteLimiter, ProviderError } from '../src/providers/http.js';
 import { OpenAICompatibleProvider } from '../src/providers/openai-compatible.js';
 import { listen, logoPng, readBody } from './helpers.js';
 
@@ -80,7 +80,7 @@ test('image usa /images/edits com referência e cai para /images/generations se 
   }
 });
 
-test('image aceita resposta com URL e troca de modelo quando falta saldo (402)', async () => {
+test('image aceita resposta com URL e troca de modelo quando o principal não existe', async () => {
   const png = await logoPng();
   const models = [];
   const srv = await listen(async (req, res) => {
@@ -91,7 +91,7 @@ test('image aceita resposta com URL e troca de modelo quando falta saldo (402)',
     const body = JSON.parse((await readBody(req)).toString());
     models.push(body.model);
     if (body.model === 'openai/gpt-image-2') {
-      res.writeHead(402).end('{"error":"insufficient balance"}');
+      res.writeHead(404).end('{"error":"model not found"}');
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -104,6 +104,47 @@ test('image aceita resposta com URL e troca de modelo quando falta saldo (402)',
   } finally {
     await srv.close();
   }
+});
+
+test('cota esgotada (402) vira erro de orçamento sem gastar tentativas em outros modelos', async () => {
+  let hits = 0;
+  const srv = await listen((_req, res) => { hits += 1; res.writeHead(402).end('{"error":"insufficient balance"}'); });
+  try {
+    await assert.rejects(makeProvider(srv.url).image({ prompt: 'logo' }), (e) => e instanceof ProviderError && e.budget);
+    await assert.rejects(makeProvider(srv.url).chat({ messages: [] }), (e) => e instanceof ProviderError && e.budget);
+    assert.equal(hits, 2);
+  } finally {
+    await srv.close();
+  }
+});
+
+test('balance lê o saldo da conta com a chave do servidor', async () => {
+  const srv = await listen((req, res) => {
+    assert.equal(req.headers.authorization, 'Bearer sk_test');
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"balance":0.42}');
+  });
+  try {
+    assert.equal(await makeProvider(srv.url, { balanceUrl: `${srv.url}/account/balance` }).balance(), 0.42);
+    assert.equal(await makeProvider(srv.url).balance(), null);
+  } finally {
+    await srv.close();
+  }
+});
+
+test('MinuteLimiter segura a chamada que passaria do limite por minuto', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const lim = new MinuteLimiter(2);
+  const order = [];
+  const p = [1, 2, 3].map((n) => lim.wait().then(() => order.push(n)));
+  await Promise.resolve(); await new Promise(setImmediate);
+  await Promise.all([p[0], p[1]]);
+  assert.deepEqual(order, [1, 2]);
+  t.mock.timers.tick(59_000);
+  await new Promise(setImmediate);
+  assert.deepEqual(order, [1, 2]);
+  t.mock.timers.tick(1_100);
+  await p[2];
+  assert.deepEqual(order, [1, 2, 3]);
 });
 
 test('chave inválida (401) é erro fatal: não tenta outros modelos', async () => {

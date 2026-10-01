@@ -1,12 +1,14 @@
 import { log } from '../log.js';
 
 export class ProviderError extends Error {
-  constructor(message, { status = 0, retryable = false, fatal = false, retryAfterMs = 0 } = {}) {
+  constructor(message, { status = 0, retryable = false, fatal = false, budget = false, retryAfterMs = 0 } = {}) {
     super(message);
     this.name = 'ProviderError';
     this.status = status;
     this.retryable = retryable;
     this.fatal = fatal;
+    // Cota/saldo esgotado (HTTP 402): outros modelos da mesma conta também falhariam.
+    this.budget = budget;
     this.retryAfterMs = retryAfterMs;
   }
 }
@@ -52,6 +54,7 @@ export async function request(url, init, { timeoutMs, signal }) {
     retryAfterMs,
     retryable: status === 408 || status === 409 || status === 429 || status >= 500,
     fatal: status === 401 || status === 403,
+    budget: status === 402,
   });
 }
 
@@ -71,5 +74,31 @@ export async function withRetries(fn, { retries, signal, label }) {
       await sleep(backoff, signal);
       attempt += 1;
     }
+  }
+}
+
+/** Janela deslizante: no máximo `perMinute` chamadas por minuto (0 = sem limite). */
+export class MinuteLimiter {
+  constructor(perMinute) {
+    this.perMinute = perMinute;
+    this.stamps = [];
+    this.chain = Promise.resolve();
+  }
+
+  wait(signal) {
+    if (!this.perMinute) return Promise.resolve();
+    const turn = this.chain.then(async () => {
+      for (;;) {
+        const now = Date.now();
+        this.stamps = this.stamps.filter((t) => now - t < 60_000);
+        if (this.stamps.length < this.perMinute) {
+          this.stamps.push(now);
+          return;
+        }
+        await sleep(60_000 - (now - this.stamps[0]) + 50, signal);
+      }
+    });
+    this.chain = turn.catch(() => {});
+    return turn;
   }
 }

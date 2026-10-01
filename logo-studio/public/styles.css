@@ -100,6 +100,7 @@ textarea:focus, .drop:focus-visible, .btn:focus-visible, .switch input:focus-vis
 .btn .spinner { border-color: rgba(255, 255, 255, .4); border-top-color: #fff; }
 
 .error { margin: 4px 0 0; color: var(--danger); font-weight: 500; }
+.continue { display: flex; margin: 0 auto 20px; }
 
 .results { margin: 40px 0 24px; }
 .results-head { flex-wrap: wrap; row-gap: 4px; }

@@ -23,6 +23,11 @@ export function testConfig(overrides = {}) {
     promptMaxChars: 500,
     exposeErrors: false,
     frameAncestors: ["'self'"],
+    clientFallback: false,
+    clientQueueThreshold: 2,
+    puter: { textModel: 'openai/gpt-5.6-sol', imageModel: 'openai/gpt-image-2', quality: 'low', scriptUrl: 'https://js.puter.com/v2/' },
+    budget: { refill: 'hourly', checkBalance: false },
+    provider: { imageQuality: 'low' },
     ...overrides,
   };
 }

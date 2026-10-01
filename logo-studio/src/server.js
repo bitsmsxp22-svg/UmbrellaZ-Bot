@@ -11,9 +11,14 @@ const { app, jobs } = createApp({ config, provider });
 const server = app.listen(config.port, config.host, () => {
   log.info(`Logo Studio em http://localhost:${config.port} (modo: ${config.isProduction ? 'produção' : 'desenvolvimento'})`);
   if (config.provider.name === 'mock') {
-    log.warn('Provedor SIMULADO ativo: as logos são de teste. Defina POLLINATIONS_API_KEY no .env para usar GPT-5.6 Sol + GPT Image 2.');
+    log.warn('Provedor SIMULADO ativo: as logos são de teste (PROVIDER=mock).');
+  } else if (config.provider.name === 'none') {
+    log.info(`Sem chave no servidor: todas as gerações usam a cota grátis do visitante (${config.puter.textModel} + ${config.puter.imageModel}).`);
   } else {
-    log.info(`Provedor: ${config.provider.name} | texto: ${config.provider.textModels.join(' > ')} | imagem: ${config.provider.imageModels.join(' > ')}`);
+    log.info(`Servidor: ${config.provider.name} | texto: ${config.provider.textModels.join(' > ')} | imagem: ${config.provider.imageModels.join(' > ')} | qualidade: ${config.provider.imageQuality}`);
+    log.info(config.clientFallback
+      ? `Quando a cota grátis do servidor acabar: cota do visitante (${config.puter.textModel} + ${config.puter.imageModel}).`
+      : 'Modo do visitante desativado (CLIENT_FALLBACK=off).');
   }
 });
 

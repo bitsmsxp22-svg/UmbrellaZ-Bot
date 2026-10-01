@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import { sleep } from './http.js';
+import { ProviderError, sleep } from './http.js';
 
 /**
  * Provedor de teste (sem internet, sem chave). Simula o GPT-5.6 Sol e o GPT Image 2
@@ -38,9 +38,12 @@ function drawLogo(index, brand) {
 }
 
 export class MockProvider {
-  constructor({ delayMs = 600 } = {}) {
+  constructor({ delayMs = 600, quotaImages = 0 } = {}) {
     this.delayMs = delayMs;
     this.imageCount = 0;
+    // Simula a cota grátis acabando depois de N imagens (MOCK_QUOTA), para testar o modo do visitante.
+    this.quotaImages = quotaImages;
+    this.imagesServed = 0;
   }
 
   async chat({ messages, json, signal }) {
@@ -67,6 +70,9 @@ export class MockProvider {
 
   async image({ prompt, signal }) {
     await sleep(this.delayMs * 2, signal);
+    if (this.quotaImages && ++this.imagesServed > this.quotaImages) {
+      throw new ProviderError('HTTP 402: cota simulada esgotada', { status: 402, budget: true });
+    }
     const m = prompt.match(/MOCK#(\d+) ([^\n]*)/);
     const index = m ? Number(m[1]) : this.imageCount++;
     const brandMatch = prompt.match(/spelled exactly "([^"]*)"/);
