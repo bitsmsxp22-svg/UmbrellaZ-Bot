@@ -15,15 +15,20 @@ test('estimateJobCost cresce com a qualidade', () => {
   assert.ok(estimateJobCost(5, 'medium') < estimateJobCost(5, 'high'));
 });
 
-test('Budget reserva o custo pelo saldo e esgota até a recarga', async () => {
+test('Budget: aceita com saldo positivo, reserva o custo e pausa até a recarga com saldo zerado', async () => {
+  let balance = 0.15;
   let calls = 0;
-  const provider = { balance: async () => { calls += 1; return 0.15; } };
-  const b = new Budget({ provider, refill: 'hourly', checkBalance: true, jobCost: 0.07 });
-  assert.equal(await b.canAfford(), true);
-  assert.equal(await b.canAfford(), true);
-  assert.equal(await b.canAfford(), false, 'terceiro pedido não cabe no saldo');
-  assert.equal(b.exhausted, true);
-  assert.equal(calls, 1, 'saldo consultado uma vez (cache de 60 s)');
+  const provider = { balance: async () => { calls += 1; return balance; } };
+  const b = new Budget({ provider, refill: 'hourly', checkBalance: true, jobCost: 0.53 });
+  assert.equal(await b.canAfford(), true, 'cota Seed (0,15) aceita um pedido premium (0,53)');
+  assert.equal(await b.canAfford(), false, 'saldo já reservado');
+  assert.equal(b.exhausted, false, 'reserva não pausa até a recarga');
+  assert.equal(calls, 1, 'saldo consultado uma vez');
+
+  balance = -0.2;
+  const z = new Budget({ provider, refill: 'hourly', checkBalance: true, jobCost: 0.53 });
+  assert.equal(await z.canAfford(), false);
+  assert.equal(z.exhausted, true, 'saldo real zerado/negativo pausa até a recarga');
 
   const noProvider = new Budget({ provider: null, refill: 'hourly', checkBalance: true, jobCost: 0.07 });
   assert.equal(await noProvider.canAfford(), false);
@@ -37,4 +42,14 @@ test('isPrivateAddress bloqueia rede interna e libera IP público', () => {
     assert.equal(isPrivateAddress(ip), true, ip);
   }
   for (const ip of ['8.8.8.8', '151.101.1.1', '2606:4700::1111']) assert.equal(isPrivateAddress(ip), false, ip);
+});
+
+test('teto diário: para de aceitar pedidos ao atingir o orçamento do dia', async () => {
+  const b = new Budget({ provider: {}, refill: 'hourly', checkBalance: false, jobCost: 0.5, dailyCap: 1.2 });
+  assert.equal(await b.canAfford(), true);
+  assert.equal(await b.canAfford(), true);
+  assert.equal(await b.canAfford(), false, 'terceiro pedido passaria do teto');
+  assert.equal(b.exhausted, true);
+  const d = new Date(b.exhaustedUntil);
+  assert.equal(d.getUTCHours(), 0, 'volta à meia-noite UTC');
 });

@@ -1,7 +1,8 @@
 import sharp from 'sharp';
 import { log } from './log.js';
 
-const MAX_SIDE = 1024;
+// Lado (px) em que a imagem é vetorizada. Ampliar antes de traçar deixa as curvas mais suaves.
+const WORK_SIDE = 2048;
 const KEY_DIST = 38; // abaixo disso (distância RGB até o fundo) o pixel vira transparente
 const PAD_RATIO = 0.06;
 
@@ -279,10 +280,10 @@ export async function finalizeSvg(svg, width, height) {
  * Converte a imagem gerada (PNG/JPEG/WebP) em SVG vetorial.
  * transparent=true remove o fundo e recorta o logo com margem.
  */
-export async function rasterToSvg(input, { transparent = true } = {}) {
+export async function rasterToSvg(input, { transparent = true, workSide = WORK_SIDE } = {}) {
   const { data, info } = await sharp(input, { limitInputPixels: 64e6 })
     .rotate()
-    .resize(MAX_SIDE, MAX_SIDE, { fit: 'inside', withoutEnlargement: true })
+    .resize(workSide, workSide, { fit: 'inside', kernel: 'lanczos3' })
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });

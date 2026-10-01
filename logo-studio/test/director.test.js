@@ -36,7 +36,7 @@ test('createConcepts completa conceitos inválidos e usa fallback local se o mod
 
 test('buildImagePrompt força estilo vetorial e o texto exato da marca', () => {
   const p = buildImagePrompt({ image_prompt: 'A lion head' }, { brand: 'Leão', transparent: true });
-  assert.match(p, /flat 2D vector/);
+  assert.match(p, /Flat vector artwork/);
   assert.match(p, /transparent background/);
   assert.match(p, /exactly "Leão"/);
   assert.match(buildImagePrompt({ image_prompt: 'x'.repeat(20) }, { brand: '', transparent: false }), /pure white background/);

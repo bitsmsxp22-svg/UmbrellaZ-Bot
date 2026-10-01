@@ -2,43 +2,28 @@
 
 O cliente descreve a logo (e, se quiser, envia até 3 imagens de referência) e recebe **5 opções diferentes em SVG vetorial**, com download em SVG e PNG (2048 px).
 
-Os modelos de criação são sempre os mesmos: **GPT-5.6 Sol** (conceitos) e **GPT Image 2** (imagens). **Custo zero para o dono do site.**
+Os modelos de criação são sempre os mesmos: **GPT-5.6 Sol** (direção de arte) e **GPT Image 2** (imagens, qualidade `high`). O visitante não faz login nem vê nenhuma tela de terceiros.
 
-## Custo zero: como funciona
+## Custo zero: como funciona e quanto rende
 
-O app combina duas cotas gratuitas, sempre com os mesmos dois modelos:
+Por padrão, tudo roda **no servidor**, usando a **cota grátis** de uma conta Pollinations. Não há cartão nem cobrança: a conta recebe pollen grátis que recarrega sozinho. Quando a cota acaba, o cliente vê *"Agenda de criação cheia no momento. Tente novamente a partir das HH:MM"* até a próxima recarga.
 
-| Camada | Quem paga | O visitante vê | Quando é usada |
+O limite é este: a cota grátis é pequena, e o GPT Image 2 em qualidade premium é o modelo mais caro. Estimativa por pedido de 5 logos:
+
+| Qualidade (`IMAGE_QUALITY`) | Custo por pedido | Conta **Seed** (0,15 pollen/hora, grátis) | Conta Spore (conta nova, 0,01/hora) |
 |---|---|---|---|
-| **1. Cota grátis do servidor** (Pollinations) | ninguém: a conta grátis recarrega sozinha | nada: roda escondido no servidor | enquanto houver saldo |
-| **2. Cota grátis do visitante** ([Puter.js](https://docs.puter.com/user-pays-model/), modelo "User-Pays") | ninguém: cada visitante tem uma cota mensal grátis própria | uma janela rápida do Puter no 1º uso (conta temporária, sem cadastro) | quando a cota do servidor acaba, ou se você não configurar chave |
+| `high` (padrão, premium) | ~0,53 pollen | ~1 pedido a cada 3,5 h (~7/dia) | inviável |
+| `medium` | ~0,16 pollen | ~1 pedido por hora (~22/dia) | inviável |
+| `low` | ~0,07 pollen | ~2 pedidos por hora (~48/dia) | ~1 a cada 7 h |
 
-A troca entre as camadas é automática:
+- Os números são estimativas conservadoras. O rendimento real depende de como o Pollinations desconta o saldo que fica negativo depois de um pedido grande.
+- A conta sobe para **Seed** sozinha, conforme a atividade da conta do GitHub (8 "pontos de dev": idade da conta, commits, repositórios, estrelas).
+- O nível **Flower** (10 pollen/dia) exige código aberto e o selo "Powered by Pollinations" visível. Não é compatível com esconder a fonte.
+- O próprio Pollinations diz que a cota grátis é para uso leve, não para produção.
 
-- Antes de aceitar um pedido, o servidor consulta o saldo.
-- Se a cota acabar no meio de um pedido, as logos que faltam são terminadas no navegador do visitante (botão "Continuar geração").
-- Quando a cota do servidor recarrega, os pedidos voltam a rodar no servidor.
-
-Nas duas camadas, a **vetorização em SVG roda no seu servidor**.
-
-```
-                     ┌─ cota do servidor OK ─► GPT-5.6 Sol + GPT Image 2 (Pollinations, no servidor)
-Pedido ─► servidor ──┤                                                                         ├─► vetorização ─► SVG
-                     └─ cota esgotada ───────► GPT-5.6 Sol + GPT Image 2 (Puter, no navegador) ┘   (no servidor)
-```
-
-### Quanto rende de graça
-
-Valores estimados com a qualidade padrão `low`. O SVG final é vetorizado, então a diferença visual para `medium` é pequena.
-
-| Conta Pollinations | Cota grátis | Pedidos de 5 logos no servidor |
-|---|---|---|
-| sem chave | — | 0 (tudo pela cota do visitante) |
-| Spore (conta nova) | 0,01 pollen/hora | praticamente 0 |
-| **Seed** (automático pela atividade no GitHub) | 0,15 pollen/hora | **~2 por hora (~48/dia)** |
-| Flower (10 pollen/dia) | ⚠️ exige código aberto e o selo "Powered by Pollinations" visível | não recomendado, porque revela a fonte |
-
-Acima disso, cada visitante usa a própria cota grátis do Puter. Um pedido custa cerca de US$ 0,07 nessa cota: 5 × US$ 0,0059 do GPT Image 2 mais o GPT-5.6 Sol. Se a cota do visitante acabar, o Puter oferece mais a ele. **Você nunca é cobrado.**
+Para mais volume, as alternativas são:
+- **Comprar pollen** (1 pollen ≈ US$ 1). `DAILY_BUDGET` limita o gasto por dia.
+- **Ligar a cota do visitante** (`CLIENT_FALLBACK=puter`). Fica grátis para você, mas o visitante vê uma tela de acesso do Puter, então não é indicado para uso comercial.
 
 ## Testar rápido
 
@@ -47,7 +32,7 @@ Acima disso, cada visitante usa a própria cota grátis do Puter. Um pedido cust
 3. **Windows:** dê dois cliques em `iniciar.bat`. **Mac/Linux:** rode `./iniciar.sh`.
 4. O navegador abre em <http://localhost:3000>. Na primeira vez a instalação leva 1 a 2 minutos.
 
-No primeiro clique em "Gerar" aparece uma janela rápida de acesso gratuito. Se o navegador bloquear, permita pop-ups para `localhost`.
+Sem chave do Pollinations no `.env`, o app roda em **modo simulado** (logos de teste, não de IA), só para conferir a interface.
 
 ## Rodar localmente
 
@@ -60,9 +45,9 @@ cp .env.example .env        # no Windows: copy .env.example .env
 npm run dev
 ```
 
-Abra <http://localhost:3000>. **Sem nenhuma chave, o app já funciona:** tudo roda pela cota grátis do visitante. No 1º clique em "Gerar", aparece a janela rápida de acesso.
+Abra <http://localhost:3000>. Sem chave, as logos são simuladas. Para logos reais, siga o passo abaixo.
 
-### Ativar a cota grátis do servidor (opcional, recomendado)
+### Ativar a cota grátis (necessário para logos reais)
 
 1. Entre em <https://enter.pollinations.ai> com o GitHub e crie uma **Secret key** (`sk_...`) em *Keys*. Não precisa de cartão.
 2. Coloque a chave em `POLLINATIONS_API_KEY` no `.env`.
@@ -71,7 +56,7 @@ Abra <http://localhost:3000>. **Sem nenhuma chave, o app já funciona:** tudo ro
 
 A chave fica **somente no servidor**. O navegador nunca a recebe.
 
-Para testar a interface sem internet: `PROVIDER=mock`. Para simular a cota acabando depois de N imagens: `MOCK_QUOTA=2`.
+Para simular a cota acabando depois de N imagens: `PROVIDER=mock` e `MOCK_QUOTA=2`.
 
 ## Produção (24/7)
 
@@ -108,7 +93,7 @@ location / {
 }
 ```
 
-Use um **subdomínio**: a CSP do site principal bloquearia o Puter. Para embutir o app numa página do seu site via `<iframe>`, defina `FRAME_ANCESTORS=https://seusite.com.br`.
+Use um **subdomínio** para não conflitar com a CSP do site principal. Para embutir o app numa página do seu site via `<iframe>`, defina `FRAME_ANCESTORS=https://seusite.com.br`.
 
 ### Opção B: Docker
 
@@ -124,23 +109,24 @@ O container tem `restart: unless-stopped` e healthcheck em `/healthz`. Aponte o 
 
 ## O que fica escondido
 
-**Na cota do servidor (camada 1), tudo fica escondido:**
 - **Chave, provedor, modelos e prompts** ficam só no servidor. O navegador fala apenas com `/api/*`, e as respostas não citam GPT, OpenAI ou Pollinations (há teste automatizado para isso).
 - **Código do servidor** (`src/`), `.env`, `package.json` e `node_modules` não são servidos (404). Só `dist/public` é público.
 - **Front-end** minificado, com nomes de arquivo com hash e sem source maps.
 - **Erros** chegam ao cliente como mensagens genéricas em português. Os detalhes vão só para o log do servidor.
 - **SVGs** limpos: sem comentários ou assinatura do gerador, sanitizados (sem scripts, links ou eventos).
+- **Repositório:** deixe o repositório do GitHub **privado**. Hoje o `UmbrellaZ-Bot` é público.
 
-**Na cota do visitante (camada 2), parte fica visível.** A geração roda no navegador, então quem abrir as ferramentas de desenvolvedor vê o Puter, os nomes dos modelos e os prompts. A janela de acesso também mostra a marca Puter. É a troca necessária para o custo zero. A chave do servidor, o código do servidor e a vetorização continuam escondidos. Para desligar essa camada: `CLIENT_FALLBACK=off`. Nesse caso, quando a cota acaba, o app avisa o horário da recarga.
+Se você ligar a cota do visitante (`CLIENT_FALLBACK=puter`), a geração passa a rodar no navegador: aparece a tela de acesso do Puter, e os prompts e modelos ficam visíveis nas ferramentas de desenvolvedor.
 
 ## Proteções e limites (ajustáveis no `.env`)
 
 | Variável | Padrão | Para quê |
 |---|---|---|
-| `IMAGE_QUALITY` | `low` | qualidade do GPT Image 2 (`low`/`medium`/`high`): quanto maior, menos pedidos grátis |
+| `IMAGE_QUALITY` | `high` | qualidade do GPT Image 2 (`low`/`medium`/`high`): quanto maior, menos pedidos grátis |
+| `DAILY_BUDGET` | 0 (sem teto) | teto de gasto por dia em pollen, se você comprar créditos |
+| `PLAN_B_SVG` | off | se a imagem falhar, o GPT-5.6 Sol desenha o SVG à mão (qualidade inferior) |
 | `POLLEN_REFILL` | `hourly` | recarga da cota grátis (`hourly` para Spore/Seed, `daily` para Flower) |
-| `CLIENT_FALLBACK` | `puter` | cota do visitante quando a do servidor acaba (`off` desliga) |
-| `CLIENT_QUEUE_THRESHOLD` | 2 | com a fila maior que isso, novos pedidos vão direto para a cota do visitante |
+| `CLIENT_FALLBACK` | `off` | `puter` liga a cota do visitante (mostra a tela de acesso do Puter) |
 | `IMAGE_RPM` | 6 | limite do Pollinations para o GPT Image 2 (imagens/minuto) |
 | `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS` | 6 por hora por IP | evita abuso |
 | `MAX_CONCURRENT_JOBS` | 2 | pedidos processados ao mesmo tempo no servidor |
@@ -159,7 +145,7 @@ src/app.js           rotas HTTP, upload, segurança (helmet/CSP), limites
 src/jobs.js          fila, escolha da cota (servidor ou visitante), pipeline das 5 amostras
 src/budget.js        controle da cota grátis do servidor (saldo, recarga)
 src/director.js      prompts do GPT-5.6 Sol (conceitos e plano B em SVG)
-src/vectorize.js     imagem → SVG (fundo, cores, traçado, otimização)
+src/vectorize.js     imagem → SVG em 2048 px (fundo, cores, traçado, otimização)
 src/fetch-image.js   download seguro (anti-SSRF) de imagens geradas no navegador
 src/sanitize.js      sanitização de SVG
 src/providers/       Pollinations/OpenAI (formato OpenAI) e simulado

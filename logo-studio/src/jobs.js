@@ -61,7 +61,8 @@ export class JobManager {
       provider,
       refill: config.budget?.refill ?? 'hourly',
       checkBalance: config.budget?.checkBalance ?? false,
-      jobCost: estimateJobCost(config.samples, config.provider?.imageQuality ?? 'low'),
+      jobCost: estimateJobCost(config.samples, config.provider?.imageQuality ?? 'high'),
+      dailyCap: config.budget?.dailyCap ?? 0,
     });
     this.stats = { started: 0, done: 0, failed: 0, client: 0 };
     this.cleanupTimer = setInterval(() => this.cleanup(), 60_000);
@@ -243,6 +244,11 @@ export class JobManager {
       if (err?.budget) {
         this.budget.markExhausted();
         if (handoff()) return;
+      }
+      if (!this.config.planBSvg) {
+        log.error(`${tag}: imagem falhou (${err.message})`);
+        sample.status = 'error';
+        return;
       }
       log.warn(`${tag}: imagem falhou (${err.message}); plano B com SVG direto`);
     }

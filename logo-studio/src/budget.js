@@ -20,17 +20,34 @@ export function estimateJobCost(samples, quality) {
 }
 
 /**
- * Controla a cota grátis do servidor. Quando ela acaba (HTTP 402) ou o saldo não cobre um pedido,
- * os pedidos seguem para o modo do visitante até a próxima recarga.
+ * Controla os créditos do servidor: saldo, teto diário e esgotamento (HTTP 402).
+ * Sem créditos, novos pedidos são recusados (ou vão para o modo do visitante, se ativado) até a recarga.
  */
 export class Budget {
-  constructor({ provider, refill, checkBalance, jobCost }) {
+  constructor({ provider, refill, checkBalance, jobCost, dailyCap = 0 }) {
     this.provider = provider;
     this.refill = refill;
     this.checkBalance = checkBalance && typeof provider?.balance === 'function';
     this.jobCost = jobCost;
     this.exhaustedUntil = 0;
     this.cached = null; // { value, at }
+    // Teto de gasto diário (estimado), para o uso comercial nunca passar do orçamento.
+    this.dailyCap = dailyCap;
+    this.day = '';
+    this.spentToday = 0;
+  }
+
+  #dailyCapReached(now) {
+    if (!this.dailyCap) return false;
+    const day = new Date(now).toISOString().slice(0, 10);
+    if (day !== this.day) {
+      this.day = day;
+      this.spentToday = 0;
+    }
+    if (this.spentToday + this.jobCost <= this.dailyCap) return false;
+    this.exhaustedUntil = Math.max(this.exhaustedUntil, nextRefill(now, 'daily'));
+    log.warn(`teto diário de gasto atingido (${this.spentToday.toFixed(2)} de ${this.dailyCap}); pausado até ${new Date(this.exhaustedUntil).toISOString()}`);
+    return true;
   }
 
   get exhausted() {
@@ -41,18 +58,30 @@ export class Budget {
     if (now < this.exhaustedUntil) return;
     this.exhaustedUntil = nextRefill(now, this.refill);
     this.cached = null;
-    log.warn(`cota grátis do servidor esgotada; modo do visitante até ${new Date(this.exhaustedUntil).toISOString()}`);
+    log.warn(`créditos do servidor esgotados (HTTP 402 ou saldo insuficiente); nova tentativa a partir de ${new Date(this.exhaustedUntil).toISOString()}`);
   }
 
   /** true se o servidor pode assumir mais um pedido agora. */
   async canAfford() {
     if (!this.provider || this.exhausted) return false;
-    if (!this.checkBalance) return true;
     const now = Date.now();
-    if (!this.cached || now - this.cached.at > 60_000) {
+    if (this.#dailyCapReached(now)) return false;
+    if (!(await this.#balanceCovers(now))) return false;
+    this.spentToday += this.jobCost;
+    return true;
+  }
+
+  // O Pollinations aceita a chamada com saldo positivo e cobre a diferença na recarga seguinte.
+  // Por isso a regra é "saldo > 0" (e não "saldo >= custo"): a cota Seed (0,15/h, não acumula)
+  // nunca chegaria ao custo de um pedido premium (~0,5).
+  async #balanceCovers(now) {
+    if (!this.checkBalance) return true;
+    const c = this.cached;
+    const stale = !c || now - c.at > 60_000 || (c.value <= 0 && now - c.at > 10_000);
+    if (stale) {
       try {
         const value = await this.provider.balance();
-        this.cached = value === null ? null : { value, at: now };
+        this.cached = value === null ? null : { value, real: value, at: now };
         if (value === null) this.checkBalance = false;
       } catch (err) {
         // Sem permissão de leitura de saldo, ou falha temporária: confia no 402 como sinal.
@@ -62,11 +91,12 @@ export class Budget {
       }
     }
     if (!this.cached) return true;
-    if (this.cached.value < this.jobCost) {
+    if (this.cached.real <= 0) {
       this.markExhausted(now);
       return false;
     }
-    // Reserva o custo estimado para não aceitar mais pedidos do que o saldo cobre.
+    // Saldo já reservado por pedidos recentes: recusa por agora, sem pausar até a recarga.
+    if (this.cached.value <= 0) return false;
     this.cached.value -= this.jobCost;
     return true;
   }

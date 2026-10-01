@@ -106,10 +106,27 @@ test('limite por IP responde 429 com Retry-After, e erros de validação não co
   }
 });
 
-test('se a geração de imagem cair, o plano B (SVG direto) ainda entrega as amostras', async () => {
+test('plano B desligado (padrão premium): imagem que falha vira amostra com erro, sem SVG improvisado', async () => {
   const provider = new MockProvider({ delayMs: 5 });
   provider.image = async () => { throw new Error('serviço de imagem fora do ar'); };
   const s = await startApp({}, provider);
+  try {
+    const { id } = await (await fetch(`${s.url}/api/generate`, { method: 'POST', body: form({ prompt: 'logo "Sem B"' }) })).json();
+    const job = await waitFor(async () => {
+      const j = await (await fetch(`${s.url}/api/jobs/${id}`)).json();
+      return j.state !== 'running' && j.state !== 'queued' ? j : null;
+    });
+    assert.equal(job.state, 'error');
+    assert.ok(job.samples.every((x) => x.status === 'error'));
+  } finally {
+    await s.close();
+  }
+});
+
+test('se a geração de imagem cair, o plano B (SVG direto) ainda entrega as amostras', async () => {
+  const provider = new MockProvider({ delayMs: 5 });
+  provider.image = async () => { throw new Error('serviço de imagem fora do ar'); };
+  const s = await startApp({ planBSvg: true }, provider);
   try {
     const { id } = await (await fetch(`${s.url}/api/generate`, { method: 'POST', body: form({ prompt: 'logo "Plano B"' }) })).json();
     const job = await waitFor(async () => {

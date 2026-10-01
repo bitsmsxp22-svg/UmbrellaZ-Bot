@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -64,15 +65,16 @@ const isProduction = env.NODE_ENV === 'production';
 const explicitProvider = (env.PROVIDER || '').trim().toLowerCase();
 const preset = PRESETS[explicitProvider] || PRESETS.pollinations;
 const apiKey = env.AI_API_KEY || env[preset.keyEnv] || '';
-const clientFallback = (env.CLIENT_FALLBACK || 'puter').trim().toLowerCase() === 'puter';
+// Uso comercial: o modo do visitante (Puter.js, que mostra tela de login) fica DESLIGADO por padrão.
+const clientFallback = (env.CLIENT_FALLBACK || 'off').trim().toLowerCase() === 'puter';
 
 // Sem chave: tudo roda pelo modo "cota do visitante" (Puter). Com PROVIDER=mock: simulado, para testes.
 let providerName = explicitProvider;
 if (!providerName) providerName = apiKey ? 'pollinations' : (clientFallback ? 'none' : 'mock');
 if (providerName !== 'mock' && providerName !== 'none' && !apiKey) providerName = clientFallback ? 'none' : 'mock';
 
-// Qualidade "low" estica a cota grátis (o SVG final é vetorizado, então a diferença visual é pequena).
-const imageQuality = env.IMAGE_QUALITY || 'low';
+// Premium: qualidade máxima do GPT Image 2 por padrão (low/medium economizam créditos).
+const imageQuality = env.IMAGE_QUALITY || 'high';
 
 export const config = {
   isProduction,
@@ -91,7 +93,7 @@ export const config = {
     imageExtras: preset.imageExtras || {},
     transparentExtras: preset.transparentExtras || {},
     editImageField: preset.editImageField || 'image',
-    reasoningEffort: env.REASONING_EFFORT || 'low',
+    reasoningEffort: env.REASONING_EFFORT || 'medium',
     imageSize: env.IMAGE_SIZE || '1024x1024',
     imageQuality,
     imageRpm: int('IMAGE_RPM', preset.imageRpm || 0),
@@ -135,7 +137,13 @@ export const config = {
     // Recarga da cota grátis do Pollinations: hourly (Spore/Seed) ou daily (Flower/Nectar).
     refill: (env.POLLEN_REFILL || 'hourly').toLowerCase() === 'daily' ? 'daily' : 'hourly',
     checkBalance: bool('CHECK_BALANCE', true),
+    // Teto de gasto por dia (UTC), em pollen (1 pollen ≈ US$ 1). 0 = sem teto.
+    dailyCap: Number.parseFloat(env.DAILY_BUDGET || '0') || 0,
   },
+  // Plano B (o GPT-5.6 Sol desenha o SVG à mão) costuma ficar abaixo do padrão premium: desligado por padrão.
+  planBSvg: bool('PLAN_B_SVG', false),
+  // PNGs originais em alta ficam em disco (não na memória) enquanto o resultado estiver disponível.
+  dataDir: env.DATA_DIR || path.join(os.tmpdir(), 'logo-studio'),
   // Com a fila do servidor maior que isso, novos pedidos vão direto para o modo do visitante.
   clientQueueThreshold: int('CLIENT_QUEUE_THRESHOLD', 2),
 };

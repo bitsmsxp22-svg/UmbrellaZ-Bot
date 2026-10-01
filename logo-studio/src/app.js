@@ -122,7 +122,7 @@ export function createApp({ config, provider }) {
       if (err instanceof QueueFullError) return next(new ClientError(503, 'Muitas pessoas criando logos agora. Tente de novo em 1 minuto.'));
       if (err instanceof QuotaError) {
         const time = new Date(err.until).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
-        return next(new ClientError(503, `Limite gratuito do momento atingido. Volte a partir das ${time}.`));
+        return next(new ClientError(503, `Agenda de criação cheia no momento. Tente novamente a partir das ${time}.`));
       }
       next(err);
     }

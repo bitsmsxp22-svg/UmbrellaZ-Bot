@@ -13,7 +13,7 @@ test('rasterToSvg gera SVG escalável, recortado e sem fundo', async () => {
   assert.doesNotMatch(svg, /fill="#f[ef]f[ef]f[ef]"/i, 'fundo branco removido');
   assert.doesNotMatch(svg, /<!--|<\?xml|VTracer|vectorizer/i, 'sem assinatura do gerador');
   const [, w, h] = svg.match(/viewBox="0 0 (\d+) (\d+)"/).map(Number);
-  assert.ok(w < 400 && h < 400, `recortado ao conteúdo (${w}x${h})`);
+  assert.ok(w < 2048 * 0.8 && h < 2048 * 0.8, `recortado ao conteúdo (${w}x${h})`);
 
   const png = await svgToPng(svg, 512);
   const meta = await sharp(png).metadata();

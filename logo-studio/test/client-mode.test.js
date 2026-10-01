@@ -54,7 +54,7 @@ test('sem chave no servidor: fluxo completo pela cota do visitante, com vetoriza
     const afterConcepts = await (await postJson(s.url, `/api/jobs/${job.id}/concepts`, { text: conceptsJson() })).json();
     assert.equal(afterConcepts.client.stage, 'images');
     assert.equal(afterConcepts.client.prompts.length, 5);
-    assert.match(afterConcepts.client.prompts[0].prompt, /flat 2D vector/);
+    assert.match(afterConcepts.client.prompts[0].prompt, /Flat vector artwork/);
     assert.equal(afterConcepts.samples[0].title, 'Ideia 1');
     assert.equal((await postJson(s.url, `/api/jobs/${job.id}/concepts`, { text: conceptsJson() })).status, 409, 'conceitos só uma vez');
 
@@ -164,7 +164,7 @@ test('modo do visitante desligado: cota esgotada responde 503 com horário de re
     s.jobs.budget.markExhausted();
     const r = await generate(s.url);
     assert.equal(r.status, 503);
-    assert.match((await r.json()).error, /Volte a partir das \d\d:\d\d/);
+    assert.match((await r.json()).error, /a partir das \d\d:\d\d/);
   } finally {
     await s.close();
   }
